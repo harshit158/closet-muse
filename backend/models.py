@@ -12,7 +12,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from backend import types
 
 class User(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     name: str
     dob: datetime
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -25,7 +25,7 @@ class User(SQLModel, table=True):
 
 
 class BodyProfile(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id")
     height_cm: Optional[float] = None
     weight_kg: Optional[float] = None

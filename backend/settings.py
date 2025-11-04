@@ -4,6 +4,12 @@ class Settings(BaseSettings):
     # app settings
     app_name: str = "closet-muse"
     
+    # endpoint
+    backend_url: str = "http://localhost:8000"
+    
+    # api keys
+    gemini_api_key: str
+    
     # db settings
     schema_name: str = "closet-muse"
     supabase_db_url: str

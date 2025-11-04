@@ -1,6 +1,8 @@
 import streamlit as st
+from frontend import api_utils
 from backend import types
-from datetime import datetime
+from PIL import Image
+from io import BytesIO
 
 def display_image_generator():
     image = st.file_uploader("Upload an image of your clothing item", type=["png", "jpg", "jpeg"])
@@ -15,8 +17,20 @@ def display_image_generator():
         original_image_placeholder.image(image, caption="Uploaded Image", use_container_width=True)
         generated_image_placeholder.image(image, caption="Generated Preview", use_container_width=True)
 
-    st.button("Generate Preview", use_container_width=True)
+    if st.button("Generate Preview", width="stretch"):
+        with st.spinner("Generating preview..."):
+            if image:
+                response = api_utils.generate_clothing_image(image)
+                if response.status_code == 200 and response.content:
+                    # If the API call is successful, display the generated image
+                    generated_image = Image.open(BytesIO(response.content))
+                    generated_image_placeholder.image(generated_image, caption="Generated Preview", use_container_width=True)
+                else:
+                    st.error("Failed to generate preview.")
+            else:
+                st.error("Please upload an image first.")
 
+@st.fragment
 def display_clothing_form():
     st.text("Add Clothing Item Details")
     
