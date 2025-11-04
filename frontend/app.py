@@ -1,62 +1,31 @@
 import streamlit as st
-from glob import glob
-from streamlit_image_select import image_select
-from backend.generate_image import generate_fashion_image
+from frontend import utils
 
-st.set_page_config(layout="wide")
+def init():
+    st.set_page_config(layout="wide")
 
-st.title("ClosetMuse")
+def display_header():
+    utils.style_text("Closet Muse", level=1, align="center", color="#000000", background_color="#FFFFFF")
+    st.divider()
 
-cols = st.columns([10, 50, 30, 10], border=False)
+def display_navigation():
+    pages = [
+            st.Page("views/onboard_wardrobe.py", title="Onboard your wardrobe"),
+            st.Page("views/generate_outfit.py", title="Generate an outfit"),
+        ]
 
-st.session_state["selections"] = []
+    pg = st.navigation(pages)
+    pg.run()
 
-DRESS_DIR = "../assets/dress_images/"
-
-with cols[1]:
-    with st.container(height=600, border=True):
-        if st.checkbox("Top", value=True):
-            with st.container(horizontal=True, height=210):
-                img_paths = glob(f"{DRESS_DIR}top/*.png")
-                img = image_select("", img_paths, use_container_width=False, key="tops")
-                st.session_state["selections"].append(img)
-        
-        # if st.checkbox("Bottoms", value=True):
-        #     with st.container(horizontal=True, height=210):
-        #         img_paths = glob(f"{DRESS_DIR}bottoms/*.png")
-        #         img = image_select("", img_paths, use_container_width=False, key="bottoms")
-        #         st.session_state["selections"].append(img)
-        
-        if st.checkbox("Sweater", value=True):
-            with st.container(horizontal=True, height=210):
-                img_paths = glob(f"{DRESS_DIR}sweater/*.png")
-                img = image_select("", img_paths, use_container_width=False, key="sweater")
-                st.session_state["selections"].append(img)
-        
-        if st.checkbox("Jacket", value=True):
-            with st.container(horizontal=True, height=210):
-                img_paths = glob(f"{DRESS_DIR}jacket/*.png")
-                img = image_select("", img_paths, use_container_width=False, key="jacket")
-                st.session_state["selections"].append(img)
+def run_app():
+    # Initialize the app    
+    init()
     
-    with st.container(height=300, border=True, horizontal=True):
-        for img in st.session_state["selections"]:
-            st.image(img, width=200)
-
-with cols[-2]:
-    st.subheader("You look beautiful")
-    model_placeholder = st.empty()
-    with model_placeholder.container():
-        st.image("../assets/model3.jpg", width=850)
-    st.container()
+    # Display the title header
+    display_header()
     
-    with st.container(horizontal=True):
-        if st.button("Generate", use_container_width=True):
-            with st.spinner("Generating your outfit..."):
-                image = generate_fashion_image(st.session_state["selections"], model_path="../assets/model3.jpg")
-            
-            with model_placeholder.container():
-                st.image(image, width=850)
+    # Display navigation menu
+    display_navigation()
 
-        if st.button("Surprise Me", use_container_width=True):
-            pass
+if __name__ == "__main__":
+    run_app()

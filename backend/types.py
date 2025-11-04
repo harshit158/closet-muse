@@ -67,6 +67,18 @@ class WomenClothingMainCategory(Enum):
     ETHNIC = "Ethnic / Cultural Wear"
     SWIMWEAR = "Swimwear & Beachwear"
     ACCESSORIES = "Accessories"
+
+CATEGORY_MAPPING = {
+    WomenClothingMainCategory.TOPS: TopCategory,
+    WomenClothingMainCategory.BOTTOMS: BottomCategory,
+    WomenClothingMainCategory.ONE_PIECE: OnePieceCategory,
+    WomenClothingMainCategory.OUTERWEAR: OuterwearCategory,
+    WomenClothingMainCategory.INTIMATES_LOUNGE: IntimateLoungewearCategory,
+    WomenClothingMainCategory.ACTIVEWEAR: ActivewearCategory,
+    WomenClothingMainCategory.ETHNIC: EthnicWearCategory,
+    WomenClothingMainCategory.SWIMWEAR: SwimwearCategory,
+    WomenClothingMainCategory.ACCESSORIES: AccessoryCategory
+}
     
 class Season(Enum):
     SPRING = "Spring"
