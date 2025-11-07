@@ -1,15 +1,16 @@
 from fastapi import FastAPI, File, UploadFile, Response
-from backend.db import create_db_and_tables
+from uuid import uuid4
+from backend.db import create_db_and_tables, supabase, get_session
 from google import genai
 from google.genai import types
-import base64
 from backend.settings import settings
+from backend import models
 
 # Initialize database tables
 create_db_and_tables()
 gemini_client = genai.Client(api_key=settings.gemini_api_key)
 
-app = FastAPI()
+app = FastAPI(debug=True)
 
 @app.post("/generate-image/")
 async def generate_image(file: UploadFile = File(...)):
@@ -40,4 +41,34 @@ async def generate_image(file: UploadFile = File(...)):
         return Response(content=image_parts[0])
     
     else:
-        return None 
+        return None
+
+@app.post("/upload-image/{bucket_name}/")
+async def upload_image(bucket_name: str, file: UploadFile = File(...)):
+    image_id = str(uuid4())
+    file_bytes = await file.read()
+    supabase.storage.from_(bucket_name).upload(f'{image_id}.png', file_bytes, {'content-type': 'image/png'})
+    
+    return {"image_id": image_id}
+
+@app.post("/user/")
+async def create_user(user: models.UserCreate):
+    with get_session() as session:
+        db_user = models.User(**user.model_dump())
+        session.add(db_user)
+        session.commit()
+        session.refresh(db_user)
+        return db_user
+
+@app.post("/clothing/{user_id}")
+async def add_clothing_item(user_id: int, clothing: models.ClothingBase):
+    with get_session() as session:
+        db_clothing = models.Clothing(
+            **clothing.model_dump(), 
+            user_id=user_id
+        )
+        db_clothing.user_id = user_id
+        session.add(db_clothing)
+        session.commit()
+        session.refresh(db_clothing)
+        return db_clothing

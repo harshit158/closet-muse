@@ -47,14 +47,14 @@ def run():
         st.container()
         
         with st.container(horizontal=True):
-            if st.button("Generate", use_container_width=True):
+            if st.button("Generate", width="stretch"):
                 with st.spinner("Generating your outfit..."):
                     image = generate_fashion_image(st.session_state["selections"], model_path="assets/model3.jpg")
                 
                 with model_placeholder.container():
                     st.image(image, width=850)
 
-            if st.button("Surprise Me", use_container_width=True):
+            if st.button("Surprise Me", width="stretch"):
                 pass
 
 if __name__ == "__main__":

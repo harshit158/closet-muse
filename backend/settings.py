@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     schema_name: str = "closet-muse"
     supabase_db_url: str
     
+    # supabase creds
+    supabase_api_url: str
+    supabase_secret_key: str
+    
     # S3 bucket names
     s3_bucket_clothing: str = "clothing" # stores clothing images
     s3_bucket_avatar: str = "avatar"     # stores user avatars

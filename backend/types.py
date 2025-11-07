@@ -57,7 +57,7 @@ class AccessoryCategory(Enum):
     HANDWEAR = "Gloves"
     LEGWEAR = "Stockings / Tights"
 
-class WomenClothingMainCategory(Enum):
+class WomenClothingMainCategory(str, Enum):
     TOPS = "Tops"
     BOTTOMS = "Bottoms"
     ONE_PIECE = "One-Piece Outfits"
