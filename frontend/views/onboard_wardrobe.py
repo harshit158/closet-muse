@@ -4,6 +4,9 @@ from backend import models, types
 from PIL import Image
 from io import BytesIO
 
+if "clothing_image" not in st.session_state:
+    st.session_state.clothing_image = None
+
 def display_image_generator():
     image = st.file_uploader("Upload an image of your clothing item", type=["png", "jpg", "jpeg"])
 

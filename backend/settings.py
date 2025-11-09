@@ -22,7 +22,10 @@ class Settings(BaseSettings):
     s3_bucket_clothing: str = "clothing" # stores clothing images
     s3_bucket_avatar: str = "avatar"     # stores user avatars
     s3_bucket_generated: str = "generated" # stores generated outfit images
-
+    
+    # Personal note
+    personal_note: str
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

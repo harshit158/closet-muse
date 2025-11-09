@@ -47,9 +47,9 @@ async def generate_image(file: UploadFile = File(...)):
 async def upload_image(bucket_name: str, file: UploadFile = File(...)):
     image_id = str(uuid4())
     file_bytes = await file.read()
-    supabase.storage.from_(bucket_name).upload(f'{image_id}.png', file_bytes, {'content-type': 'image/png'})
+    response = supabase.storage.from_(bucket_name).upload(f'{image_id}.png', file_bytes, {'content-type': 'image/png'})
     
-    return {"image_id": image_id}
+    return {"image_path": response.full_path}
 
 @app.post("/user/")
 async def create_user(user: models.UserCreate):

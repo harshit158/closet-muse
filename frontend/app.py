@@ -1,5 +1,6 @@
 import streamlit as st
 from frontend import utils
+from backend.settings import settings
 
 def init():
     st.set_page_config(layout="wide")
@@ -7,6 +8,10 @@ def init():
 def display_header():
     utils.style_text("Closet Muse", level=1, align="center", color="#000000", background_color="#FFFFFF")
     st.divider()
+
+def display_sidebar():
+    st.divider()
+    st.sidebar.text(settings.personal_note)
 
 def display_navigation():
     pages = [
@@ -20,6 +25,9 @@ def display_navigation():
 def run_app():
     # Initialize the app    
     init()
+    
+    # Display sidebar
+    display_sidebar()
     
     # Display the title header
     display_header()

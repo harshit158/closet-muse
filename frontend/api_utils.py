@@ -17,12 +17,12 @@ def upload_image(bucket: str, file) -> str:
         f"{settings.backend_url}/upload-image/{bucket}/",
         files=files
     )
-    return response.json()["image_id"]
+    return response.json()["image_path"]
 
 def add_clothing_item(user_id: int, clothing: models.ClothingBase, image: BytesIO):
     # upload image first and get image_id
-    image_id = upload_image("clothing", image)
-    clothing.image_id = image_id
+    image_path = upload_image("clothing", image)
+    clothing.image_path = image_path
 
     response = requests.post(
         f"{settings.backend_url}/clothing/{user_id}",

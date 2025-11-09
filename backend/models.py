@@ -52,7 +52,7 @@ class OutfitClothingLink(SQLModel, table=True):
     __table_args__ = {"extend_existing": True}
 
     outfit_id: uuid.UUID = Field(foreign_key="outfit.id", primary_key=True)
-    clothing_item_id: uuid.UUID = Field(foreign_key="clothing.id", primary_key=True)
+    clothing_item_id: uuid.UUID = Field(foreign_key="clothing.id", primary_key=True) 
 
 class ClothingBase(SQLModel):
     main_category: types.WomenClothingMainCategory
@@ -64,7 +64,7 @@ class ClothingBase(SQLModel):
     brand: Optional[str] = None
     size: Optional[str] = None
     season: Optional[types.Season] = None
-    image_id: Optional[str] = None
+    image_path: Optional[str] = None
 
 class Clothing(ClothingBase, table=True):
     __table_args__ = {"extend_existing": True}
