@@ -7,6 +7,7 @@ from streamlit_image_select import image_select
 from backend.generate_image import generate_fashion_image
 from backend.db import supabase
 from backend.types import WomenClothingMainCategory
+from backend.models import Clothing, ClothingWithImage
 from backend.settings import settings
 from collections import defaultdict
 from PIL import Image
@@ -26,7 +27,7 @@ class OutfitGenerator:
         if "clothing_selections" not in st.session_state:
             st.session_state.clothing_selections = defaultdict()
 
-    def display_select_category(self) -> None:
+    def display_category_checkboxes(self) -> None:
         """Display category checkboxes in the given container."""
         st.subheader("Select Category")
         
@@ -49,18 +50,18 @@ class OutfitGenerator:
         image=supabase.storage.from_(settings.s3_bucket_clothing).download(image_name)
         return BytesIO(image)
 
-    def fetch_clothing_images(self, category: WomenClothingMainCategory) -> list[Image.Image]:
+    def fetch_clothings(self, category: WomenClothingMainCategory) -> list[ClothingWithImage]:
         response = (
             supabase.schema(settings.app_name).table(settings.s3_bucket_clothing)
-            .select("main_category", "image_path")
+            .select("*")
             .eq("main_category", category.name)
             .execute()
         )
-        
-        items = response.data
-        images = [self._download_image(item["image_path"]) for item in items]
-        pil_images = [Image.open(img) for img in images]
-        return pil_images
+
+        clothings = [ClothingWithImage(clothing=Clothing(**item)) for item in response.data]
+        for clothing in clothings:
+            clothing.image_data = self._download_image(clothing.clothing.image_path).getvalue()
+        return clothings
 
     def display_wardrobe(self) -> None:
         """Display wardrobe items for selected categories."""
@@ -70,19 +71,22 @@ class OutfitGenerator:
             for main_category in sorted_categories:
                 st.markdown(f"**{main_category.value}**")
                 with st.container(height=220, horizontal=True):
-                    images = self.fetch_clothing_images(main_category)
-                    if images:
-                        img = image_select("", images, use_container_width=False, 
-                                        key=main_category.name)
+                    clothings = self.fetch_clothings(main_category)
+                    if clothings:
+                        clothing_images = [Image.open(BytesIO(clothing.image_data)) for clothing in clothings]
+                        img_idx = image_select("", clothing_images, use_container_width=False, key=main_category.name, return_value="index")
 
-                        st.session_state.clothing_selections[main_category.value] = img
-    
-    def display_selected_items(self) -> None:
+                        st.session_state.clothing_selections[main_category.value] = clothings[img_idx]
+
+    def display_selected_clothings(self) -> None:
         """Display currently selected items."""
         st.subheader("Selected Items")
         with st.container(height=800, border=True, horizontal_alignment="center"):
-            for category, img in st.session_state.clothing_selections.items():
-                st.image(img, caption=category, width=200)
+            # sorted_selections = sorted(st.session_state.category_selections, key=lambda x: self.CATEGORY_DISPLAY_RANK[x])
+            for category in self.CATEGORY_DISPLAY_RANK:
+                if category.value in st.session_state.clothing_selections:
+                    clothing = st.session_state.clothing_selections[category.value]
+                    st.image(clothing.image_data, caption=category.value, width=200)
 
     def display_preview(self) -> None:
         """Display model preview and generation controls."""
@@ -103,12 +107,15 @@ class OutfitGenerator:
         """Generate outfit based on selected items."""
         with st.spinner("Generating your outfit..."):
             image = generate_fashion_image(
-                st.session_state.selections, 
+                st.session_state.clothing_selections, 
                 model_path=self.MODEL_PATH
             )
-            with placeholder.container():
-                st.image(image, width=850)
-    
+            if image:
+                with placeholder.container():
+                    st.image(image, width=850)
+            else:
+                st.error("Failed to generate outfit.")
+
     def generate_surprise_outfit(self, placeholder) -> None:
         """Generate surprise outfit (placeholder for future implementation)."""
         pass
@@ -119,7 +126,7 @@ class OutfitGenerator:
 
         # Category selection column
         with cols[0]:
-            self.display_select_category()
+            self.display_category_checkboxes()
         
         # Wardrobe display column
         with cols[1]:
@@ -127,7 +134,7 @@ class OutfitGenerator:
         
         # Display selections
         with cols[2]:
-            self.display_selected_items()
+            self.display_selected_clothings()
         
         # Preview and generation column
         with cols[3]:

@@ -1,5 +1,3 @@
-from typing import Optional, List
-from sqlmodel import SQLModel, Field, Relationship
 from pydantic import BaseModel, Field
 
 import datetime
@@ -37,7 +35,7 @@ class BodyProfile(SQLModel, table=True):
     body_shape: Optional[str] = None
     avatar_image_path: Optional[str] = None
 
-    user: User = Relationship(back_populates="body_profile")
+    user: User = Relationship(back_populates="body_profile") 
     
 class AvatarImage(SQLModel, table=True):
     __table_args__ = {"extend_existing": True}
@@ -77,6 +75,9 @@ class Clothing(ClothingBase, table=True):
     user: User = Relationship(back_populates="clothes")
     outfits: List["Outfit"] = Relationship(back_populates="clothing_items",link_model=OutfitClothingLink)
 
+class ClothingWithImage(BaseModel):
+    clothing: ClothingBase
+    image_data: bytes | None = None
 
 class Outfit(SQLModel, table=True):
     """Combination of multiple clothing items (user-created or AI-generated)."""
