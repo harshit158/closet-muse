@@ -11,6 +11,19 @@ def generate_clothing_image(image: BytesIO):
     )
     return response
 
+def generate_clothing_attributes(image: BytesIO) -> models.ClothingBase | None:
+    files = {"file": (image.name, image.getvalue(), image.type)}
+    
+    try:
+        response = requests.post(
+            f"{settings.backend_url}/generate-clothing-attributes/",
+            files=files
+        )
+        return models.ClothingBase(**response.json())
+    except Exception as e:
+        print(e)
+        return None
+
 def upload_image(bucket: str, file) -> str:
     files = {"file": (file.name, file.getvalue(), file.type)}
     response = requests.post(

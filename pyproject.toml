@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.120.4",
     "google-genai>=1.46.0",
     "ipykernel>=7.0.1",
+    "ollama>=0.6.1",
     "pillow==11.3.0",
     "psycopg2-binary>=2.9.11",
     "pydantic-settings>=2.11.0",
@@ -17,5 +18,5 @@ dependencies = [
     "streamlit==1.50.0",
     "streamlit-image-select>=0.6.0",
     "supabase>=2.23.2",
-    "uvicorn>=0.38.0",
+    "uvicorn>=0.38.0"
 ]

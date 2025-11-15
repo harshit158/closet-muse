@@ -17,11 +17,11 @@ class User(UserCreate, table=True):
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
 
-    body_profile: Optional["BodyProfile"] = Relationship(back_populates="user")
-    clothes: List["Clothing"] = Relationship(back_populates="user")
-    outfits: List["Outfit"] = Relationship(back_populates="user")
-    generated_images: List["GeneratedImage"] = Relationship(back_populates="user")
-    avatar_images: List["AvatarImage"] = Relationship(back_populates="user")
+    # body_profile: Optional["BodyProfile"] = Relationship(back_populates="user")
+    # clothes: List["Clothing"] = Relationship(back_populates="user")
+    # outfits: List["Outfit"] = Relationship(back_populates="user")
+    # generated_images: List["GeneratedImage"] = Relationship(back_populates="user")
+    # avatar_images: List["AvatarImage"] = Relationship(back_populates="user")
 
 
 class BodyProfile(SQLModel, table=True):
@@ -35,7 +35,7 @@ class BodyProfile(SQLModel, table=True):
     body_shape: Optional[str] = None
     avatar_image_path: Optional[str] = None
 
-    user: User = Relationship(back_populates="body_profile") 
+    # user: User = Relationship(back_populates="body_profile") 
     
 class AvatarImage(SQLModel, table=True):
     __table_args__ = {"extend_existing": True}
@@ -44,7 +44,7 @@ class AvatarImage(SQLModel, table=True):
     user_id: int = Field(foreign_key="user.id")
     image_path: str
 
-    user: User = Relationship(back_populates="avatar_images")
+    # user: User = Relationship(back_populates="avatar_images")
 
 class OutfitClothingLink(SQLModel, table=True):
     __table_args__ = {"extend_existing": True}
@@ -56,12 +56,36 @@ class ClothingBase(SQLModel):
     main_category: types.WomenClothingMainCategory
     sub_category: Optional[str] = None
 
-    color: Optional[str] = None
-    material: Optional[str] = None
-    pattern: Optional[str] = None
+    # Dominant visible color (either standard or hex-mapped), e.g. "Beige", "#D0B987"
+    color: Optional[str] = Field(
+        default=None,
+        description="Primary visible color of the item (standard name)"
+    )
+    
+    # Key fabric or production material, e.g. "Cotton", "Silk Blend", "Denim"
+    material: Optional[types.Material] = Field(
+        default=None,
+        description="Main fabric or material composition of the item"
+    )
+    
+    # Visual or print style, e.g. "Solid", "Floral", "Striped", "Animal Print"
+    pattern: Optional[types.Pattern] = Field(
+        default=None,
+        description="Visual design or print style displayed on the item"
+    )
+    
+    # Manufacturer or label name, e.g. "Zara", "Uniqlo", "H&M"
     brand: Optional[str] = None
+    
+    # Sizing label according to seller standard, e.g. “S”, “M”, “L”, “28”, “Free Size”
     size: Optional[str] = None
-    season: Optional[types.Season] = None
+    
+    # Best-suited season for use, e.g. "Summer", "Winter", "All-season"
+    season: Optional[types.Season] = Field(
+        default=None,
+        description="Seasonal suitability based on fabric, design, and intended use"
+    )
+    
     image_path: Optional[str] = None
 
 class Clothing(ClothingBase, table=True):
@@ -72,8 +96,8 @@ class Clothing(ClothingBase, table=True):
     created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     # Relationships
-    user: User = Relationship(back_populates="clothes")
-    outfits: List["Outfit"] = Relationship(back_populates="clothing_items",link_model=OutfitClothingLink)
+    # user: User = Relationship(back_populates="clothes")
+    # outfits: List["Outfit"] = Relationship(back_populates="clothing_items",link_model=OutfitClothingLink)
 
 class ClothingWithImage(BaseModel):
     clothing: ClothingBase
@@ -93,9 +117,9 @@ class Outfit(SQLModel, table=True):
     season: Optional[types.Season] = None
 
     # Relationships
-    user: User = Relationship(back_populates="outfits")
-    generated_images: List["GeneratedImage"] = Relationship(back_populates="outfit")
-    clothing_items: List["Clothing"] = Relationship(back_populates="outfits",link_model=OutfitClothingLink)
+    # user: User = Relationship(back_populates="outfits")
+    # generated_images: List["GeneratedImage"] = Relationship(back_populates="outfit")
+    # clothing_items: List["Clothing"] = Relationship(back_populates="outfits",link_model=OutfitClothingLink)
 
 class GeneratedImage(SQLModel, table=True):
     """AI-generated visuals (for try-ons or AI outfits)."""
@@ -112,8 +136,8 @@ class GeneratedImage(SQLModel, table=True):
     created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     # Relationships
-    user: User = Relationship(back_populates="generated_images")
-    outfit: Optional[Outfit] = Relationship(back_populates="generated_images")
+    # user: User = Relationship(back_populates="generated_images")
+    # outfit: Optional[Outfit] = Relationship(back_populates="generated_images") 
 
 
 class SurpriseOutfit(SQLModel, table=True):

@@ -1,10 +1,13 @@
 from fastapi import FastAPI, File, UploadFile, Response
 from uuid import uuid4
+import base64
 from backend.db import create_db_and_tables, supabase, get_session
 from google import genai
 from google.genai import types
 from backend.settings import settings
 from backend import models
+from ollama import chat
+
 
 # Initialize database tables
 create_db_and_tables()
@@ -42,6 +45,27 @@ async def generate_image(file: UploadFile = File(...)):
     
     else:
         return None
+
+@app.post("/generate-clothing-attributes/")
+async def generate_clothing_attributes(file: UploadFile = File(...)) -> models.ClothingBase:
+    image_bytes = await file.read()
+    encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+
+    # ---- Send into Ollama ----
+    response = chat(
+        model="qwen3-vl:4b",
+        messages=[{
+            "role": "user",
+            "content": "Analyze the clothing image and describe the dress attributes using the given fields.",
+            "images": [encoded_image],  # <-- passing base64 bytes instead of file path
+        }],
+        format=models.ClothingBase.model_json_schema(),
+        options={"temperature": 0},
+    )
+
+    image_description = models.ClothingBase.model_validate_json(response.message.content)
+
+    return image_description
 
 @app.post("/upload-image/{bucket_name}/")
 async def upload_image(bucket_name: str, file: UploadFile = File(...)):

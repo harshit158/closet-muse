@@ -37,7 +37,7 @@ class IntimateLoungewearCategory(Enum):
 
 class ActivewearCategory(Enum):
     TOP = "Active Top"
-    BOTTOM = "Active Bottom"
+    BOTTOM = "Active Bottom" 
     SET = "Active Set"
     OUTERWEAR = "Active Outerwear"
 
@@ -80,17 +80,38 @@ CATEGORY_MAPPING = {
     WomenClothingMainCategory.ACCESSORIES: AccessoryCategory
 }
     
-class Season(Enum):
+class Season(str, Enum):
     SPRING = "Spring"
     SUMMER = "Summer"
     FALL = "Fall"
     WINTER = "Winter"
     ALL_SEASONS = "All Seasons"
 
-class Occasion(Enum):
+class Occasion(str, Enum):
     CASUAL = "Casual"
     PARTY = "Party"
     WORK = "Work"
     SPORTS = "Sports"
     BEACH = "Beach"
     SLEEPWEAR = "Sleepwear"
+
+class Material(str, Enum):
+    COTTON = "Cotton"
+    DENIM = "Denim"
+    POLYESTER = "Polyester"
+    LINEN = "Linen"
+    SILK = "Silk"
+    WOOL = "Wool"
+    LEATHER = "Leather"
+    OTHER = "Other"
+
+class Pattern(str, Enum):
+    SOLID = "Solid"
+    STRIPED = "Striped"
+    CHECKERED = "Checkerboard"
+    PLAIN = "Plain"
+    POLKA_DOT = "Polka Dot"
+    FLORAL = "Floral"
+    GEOMETRIC = "Geometric"
+    PRINT = "Print"
+    OTHER = "Other"

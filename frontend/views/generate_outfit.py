@@ -14,7 +14,6 @@ from PIL import Image
 
 @dataclass
 class OutfitGenerator:
-    DRESS_DIR: str = "assets/dress_images/"
     MODEL_PATH: str = "assets/model3.jpg"
     CATEGORY_DISPLAY_RANK = {category: rank for rank, category in enumerate(WomenClothingMainCategory)}
     
@@ -141,8 +140,7 @@ class OutfitGenerator:
             self.display_preview()
 
 def run():
-    generator = OutfitGenerator()
-    generator.render()
+    OutfitGenerator().render()
 
 if __name__ == "__main__":
     run()
