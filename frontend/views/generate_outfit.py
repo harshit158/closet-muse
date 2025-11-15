@@ -26,13 +26,27 @@ class OutfitGenerator:
         if "clothing_selections" not in st.session_state:
             st.session_state.clothing_selections = defaultdict()
 
+    def _get_clothing_count(self, category: WomenClothingMainCategory) -> int:
+        """Get the number of clothing items for a given category."""
+        
+        response = (
+            supabase.schema(settings.app_name).table("clothing") # TODO: don't hardcode table name
+            .select("*")
+            .eq("main_category", category.name)
+            .execute()
+        )
+
+        return len(response.data)
+    
     def display_category_checkboxes(self) -> None:
         """Display category checkboxes in the given container."""
         st.subheader("Select Category")
         
          # display checkboxes for each category
         for category in WomenClothingMainCategory:
-            if st.checkbox(category.value, value=False):
+            total_clothing = self._get_clothing_count(category)
+            label = f"({total_clothing}) {category.value}"
+            if st.checkbox(label=label, value=False):
                 if category not in st.session_state.category_selections:
                     st.session_state.category_selections.append(category)
             else:
@@ -51,7 +65,7 @@ class OutfitGenerator:
 
     def fetch_clothings(self, category: WomenClothingMainCategory) -> list[ClothingWithImage]:
         response = (
-            supabase.schema(settings.app_name).table(settings.s3_bucket_clothing)
+            supabase.schema(settings.app_name).table("clothing")
             .select("*")
             .eq("main_category", category.name)
             .execute()
