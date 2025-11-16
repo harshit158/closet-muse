@@ -6,10 +6,16 @@ def init():
     st.set_page_config(layout="wide")
 
 def display_header():
-    utils.style_text("Closet Muse", level=1, align="center", color="#000000", background_color="#FFFFFF")
+    title_container = st.container(horizontal_alignment="center")
+    with title_container:
+        # utils.style_text("Closet Muse", level=1, align="center", color="#000000", background_color="#FFFFFF")
+        st.image("assets/logo/title_logo.png", width=500)
+    # utils.style_text("Closet Muse", level=1, align="center", color="#000000", background_color="#FFFFFF")
     st.divider()
 
 def display_sidebar():
+    with st.sidebar:
+        st.image("assets/logo/sidebar_logo.png", width=200)
     st.divider()
     st.sidebar.text(settings.personal_note)
 
