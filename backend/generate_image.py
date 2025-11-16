@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from uuid import uuid4
-import webcolors
 from google import genai
 from google.genai import types
 from PIL import Image

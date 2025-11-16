@@ -46,7 +46,7 @@ class OutfitGenerator:
         for category in WomenClothingMainCategory:
             total_clothing = self._get_clothing_count(category)
             label = f"({total_clothing}) {category.value}"
-            if st.checkbox(label=label, value=False):
+            if st.checkbox(label=label, value=bool(total_clothing)):
                 if category not in st.session_state.category_selections:
                     st.session_state.category_selections.append(category)
             else:

@@ -12,7 +12,7 @@ def generate_clothing_image(image: BytesIO):
     return response
 
 def generate_clothing_attributes(image: BytesIO) -> models.ClothingBase | None:
-    files = {"file": (image.name, image.getvalue(), image.type)}
+    files = {"file": (image.name, image.getvalue(), image.type)} 
     
     try:
         response = requests.post(
