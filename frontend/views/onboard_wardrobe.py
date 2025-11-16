@@ -1,8 +1,6 @@
 import streamlit as st
 from frontend import api_utils
 from backend import models, types
-from PIL import Image
-from io import BytesIO
 
 
 class OnboardWardrobe:
@@ -44,6 +42,7 @@ class OnboardWardrobe:
                     # else:
                     #     st.error("Failed to generate preview.")
 
+        
     @st.fragment
     def display_clothing_form(self):
         st.text("Add Clothing Item Details")
@@ -77,7 +76,7 @@ class OnboardWardrobe:
             color = st.text_input("Color (optional)", value=value)
         
         # MATERIAL
-        index = list(types.Material).index(self.clothing_attributes.material) if hasattr(self, "clothing_attributes") else None
+        index = list(types.Material).index(self.clothing_attributes.material) if (hasattr(self, "clothing_attributes") and self.clothing_attributes.material) else None
         with cols[1]:
             material = st.selectbox(
                 "Material (optional)",
@@ -87,7 +86,7 @@ class OnboardWardrobe:
             )
         
         # PATTERN
-        index = list(types.Pattern).index(self.clothing_attributes.pattern) if hasattr(self, "clothing_attributes") else None
+        index = list(types.Pattern).index(self.clothing_attributes.pattern) if (hasattr(self, "clothing_attributes") and self.clothing_attributes.pattern) else None
         pattern = st.selectbox(
             "Pattern (optional)", 
             index=index,
@@ -102,7 +101,7 @@ class OnboardWardrobe:
         size = st.text_input("Size (optional)")
         
         # SEASON
-        index = list(types.Season).index(self.clothing_attributes.season) if hasattr(self, "clothing_attributes") else None
+        index = list(types.Season).index(self.clothing_attributes.season) if (hasattr(self, "clothing_attributes") and self.clothing_attributes.season) else None
         season = st.selectbox(
             "Season (optional)",
             index=index,
@@ -115,7 +114,7 @@ class OnboardWardrobe:
             clothing_item = models.ClothingBase(
                 main_category=main_category,
                 sub_category=sub_category,
-                color=color if color != "#000000" else None,
+                color=color if color  else None,
                 material=material if material else None,
                 pattern=pattern if pattern else None,
                 brand=brand if brand else None,

@@ -99,7 +99,8 @@ class OutfitGenerator:
             for category in self.CATEGORY_DISPLAY_RANK:
                 if category.value in st.session_state.clothing_selections:
                     clothing = st.session_state.clothing_selections[category.value]
-                    st.image(clothing.image_data, caption=category.value, width=200)
+                    caption = f"{clothing.clothing.main_category} ({clothing.clothing.sub_category})"
+                    st.image(clothing.image_data, caption=caption, width=200)
 
     def display_preview(self) -> None:
         """Display model preview and generation controls."""
