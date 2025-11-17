@@ -86,6 +86,11 @@ class ClothingBase(SQLModel):
         description="Seasonal suitability based on fabric, design, and intended use"
     )
     
+    description: Optional[str] = Field(
+        default=None,
+        description="Image description in detail, focusing on the dress including its color, pattern, fabric, style, fit, etc."
+    )
+    
     image_path: Optional[str] = None
 
 class Clothing(ClothingBase, table=True):

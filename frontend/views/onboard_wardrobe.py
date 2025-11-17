@@ -108,6 +108,10 @@ class OnboardWardrobe:
             options=[season for season in types.Season],
             format_func=lambda x: x.value if x else ""
         )
+        
+        # DESCRIPTION
+        value = self.clothing_attributes.description if hasattr(self, "clothing_attributes") else None
+        description = st.text_area("Description (optional)", value=value)
 
         # Submit button
         if st.button("Add Clothing Item", width="stretch"):
@@ -119,7 +123,8 @@ class OnboardWardrobe:
                 pattern=pattern if pattern else None,
                 brand=brand if brand else None,
                 size=size if size else None,
-                season=season if season and season != "" else None
+                season=season if season and season != "" else None,
+                description=description if description else None
             )
 
             api_utils.add_clothing_item(user_id=1, clothing=clothing_item, image=st.session_state.clothing_image)
