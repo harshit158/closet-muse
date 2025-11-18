@@ -21,6 +21,7 @@ def display_navigation():
     pages = {
         "Home": [
             st.Page("views/generate_outfit.py", title="Generate Outfit"),
+            st.Page("views/clo_ai.py", title="Chat with Clo AI"),
         ],
         "Manage Wardrobe": [
             st.Page("views/onboard_wardrobe.py", title="Add to collection"),
