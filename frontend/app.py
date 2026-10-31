@@ -1,31 +1,45 @@
+import sys
+from pathlib import Path
+
+# Streamlit only adds the running script's own directory (frontend/) to
+# sys.path, so the project root must be added explicitly for the `frontend`
+# package to be importable regardless of how the app is launched.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import streamlit as st
-from frontend import utils
-from backend.settings import settings
+from frontend import styles, utils
+from closet_muse.settings import settings
+
+from foundry.observability import ObservabilityConfig, get_logger, get_tracer, init_observability
+config = ObservabilityConfig(app_name=settings.app_name)
+init_observability(config)
+
+logger = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 def init():
-    st.set_page_config(layout="wide")
+    st.set_page_config(layout="wide", page_title="Closet Muse", page_icon="👗")
+    styles.inject_css()
+    logger.info("Initialized the app")
 
 def display_header():
-    title_container = st.container(horizontal_alignment="center")
-    with title_container:
-        # utils.style_text("Closet Muse", level=1, align="center", color="#000000", background_color="#FFFFFF")
-        st.image("assets/logo/title_logo.png", width=600)
-    st.divider()
-
-def display_sidebar():
-    st.sidebar.image("assets/logo/sidebar_logo.png")
-    with st.sidebar, st.container(horizontal_alignment="center"):
-        st.text(settings.personal_note)
+    styles.hero(
+        "assets/logo/title_logo.png",
+        tagline="Your personal AI stylist",
+    )
 
 def display_navigation():
     pages = {
-        "Home": [
-            st.Page("views/generate_outfit.py", title="Generate Outfit"),
-            st.Page("views/clo_ai.py", title="Chat with Clo AI"),
+        "Wardrobe": [
+            st.Page("views/generate_outfit.py", title="View Collection"),
+            st.Page("views/onboard_wardrobe.py", title="Add to Collection"),
         ],
-        "Manage Wardrobe": [
-            st.Page("views/onboard_wardrobe.py", title="Add to collection"),
-        ]
+        "Coming Soon": [
+            st.Page("views/clo_ai.py", title="Chat with Clo AI"),
+            st.Page("views/shop.py", title="Shop"),
+        ],
     }
 
     pg = st.navigation(pages, position="top")
@@ -35,14 +49,14 @@ def run_app():
     # Initialize the app    
     init()
     
-    # Display sidebar
-    display_sidebar()
-    
     # Display the title header
     display_header()
     
     # Display navigation menu
     display_navigation()
+
+    # Display personal note in the sidebar
+    styles.sidebar_note(settings.personal_note)
 
 if __name__ == "__main__":
     run_app()

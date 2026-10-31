@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class TopCategory(Enum):
     TSHIRT = "T-Shirt"
     SHIRT_BLOUSE = "Shirt / Blouse"
@@ -9,6 +10,7 @@ class TopCategory(Enum):
     CROP_TOP = "Crop Top"
     BRALETTE_TUBE = "Bralette / Tube Top"
 
+
 class BottomCategory(Enum):
     JEANS = "Jeans"
     TROUSERS_PANTS = "Trousers / Pants"
@@ -16,10 +18,12 @@ class BottomCategory(Enum):
     SHORTS = "Shorts"
     SKIRTS = "Skirts"
 
+
 class OnePieceCategory(Enum):
     DRESS = "Dress"
     JUMPSUIT = "Jumpsuit"
     ROMPER = "Romper / Playsuit"
+
 
 class OuterwearCategory(Enum):
     JACKET = "Jacket"
@@ -28,6 +32,7 @@ class OuterwearCategory(Enum):
     SHRUG_CAPE = "Shrug / Cape"
     VEST = "Vest"
 
+
 class IntimateLoungewearCategory(Enum):
     BRA = "Bra"
     PANTY = "Panty"
@@ -35,20 +40,24 @@ class IntimateLoungewearCategory(Enum):
     LOUNGEWEAR = "Loungewear"
     ROBE = "Robe"
 
+
 class ActivewearCategory(Enum):
     TOP = "Active Top"
-    BOTTOM = "Active Bottom" 
+    BOTTOM = "Active Bottom"
     SET = "Active Set"
     OUTERWEAR = "Active Outerwear"
+
 
 class EthnicWearCategory(Enum):
     INDIAN = "Indian Wear"
     MIDDLE_EASTERN = "Middle Eastern Wear"
     FUSION = "Fusion Wear"
 
+
 class SwimwearCategory(Enum):
     SWIMWEAR = "Swimwear"
     COVERUP = "Cover-up"
+
 
 class AccessoryCategory(Enum):
     NECKWEAR = "Scarf / Shawl"
@@ -56,6 +65,7 @@ class AccessoryCategory(Enum):
     HEADWEAR = "Hat / Cap"
     HANDWEAR = "Gloves"
     LEGWEAR = "Stockings / Tights"
+
 
 class WomenClothingMainCategory(str, Enum):
     TOPS = "Tops"
@@ -68,6 +78,7 @@ class WomenClothingMainCategory(str, Enum):
     SWIMWEAR = "Swimwear & Beachwear"
     ACCESSORIES = "Accessories"
 
+
 CATEGORY_MAPPING = {
     WomenClothingMainCategory.TOPS: TopCategory,
     WomenClothingMainCategory.BOTTOMS: BottomCategory,
@@ -77,15 +88,17 @@ CATEGORY_MAPPING = {
     WomenClothingMainCategory.ACTIVEWEAR: ActivewearCategory,
     WomenClothingMainCategory.ETHNIC: EthnicWearCategory,
     WomenClothingMainCategory.SWIMWEAR: SwimwearCategory,
-    WomenClothingMainCategory.ACCESSORIES: AccessoryCategory
+    WomenClothingMainCategory.ACCESSORIES: AccessoryCategory,
 }
-    
+
+
 class Season(str, Enum):
     SPRING = "Spring"
     SUMMER = "Summer"
     FALL = "Fall"
     WINTER = "Winter"
     ALL_SEASONS = "All Seasons"
+
 
 class Occasion(str, Enum):
     CASUAL = "Casual"
@@ -94,6 +107,7 @@ class Occasion(str, Enum):
     SPORTS = "Sports"
     BEACH = "Beach"
     SLEEPWEAR = "Sleepwear"
+
 
 class Material(str, Enum):
     COTTON = "Cotton"
@@ -104,6 +118,7 @@ class Material(str, Enum):
     WOOL = "Wool"
     LEATHER = "Leather"
     OTHER = "Other"
+
 
 class Pattern(str, Enum):
     SOLID = "Solid"

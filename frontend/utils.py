@@ -1,29 +1,34 @@
 import streamlit as st
 
+from frontend.styles import PALETTE
+
+
 def style_text(
     text: str,
     level: int = 1,
     align: str = "center",
-    color: str = "#0E6909",
-    background_color: str = "#A7A9A7",
-):
+    color: str | None = None,
+    background_color: str | None = None,
+) -> None:
     """
     Display a styled heading (h1-h6) in Streamlit using HTML and CSS.
+
+    Colors default to the shared Rose Taupe design tokens so views stay on
+    brand. Arguments are kept for backwards compatibility with existing calls.
 
     Args:
         text (str): The heading text.
         level (int): Heading level (1–6). Default: 1.
         align (str): Text alignment - 'left', 'center', or 'right'.
-        font_size (str | None): Custom font size (e.g., '32px', '2.5rem'). Defaults to browser default for chosen h-level.
-        color (str): Text color.
-        background_color (str): Background color.
-        font_family (str): Font family.
-        padding (str): Padding around text.
-        border_radius (str): Rounded corners for background.
+        color (str | None): Text color. Defaults to the brand text token.
+        background_color (str | None): Background color. Defaults to transparent.
     """
 
     # Ensure heading level is between 1 and 6
     level = max(1, min(level, 6))
+
+    color = color or PALETTE["text"]
+    background_color = background_color or "transparent"
 
     html_code = f"""
     <div style="text-align: {align};">
