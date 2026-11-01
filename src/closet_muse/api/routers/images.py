@@ -1,6 +1,6 @@
 """Image routes: polish, attribute extraction, upload, and retrieval."""
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from closet_muse.domain.schemas import ClothingBase
@@ -10,10 +10,21 @@ router = APIRouter(prefix="/images", tags=["images"])
 
 
 @router.post("/polish/")
-async def polish_image(file: UploadFile = File(...)) -> Response:
-    """Generate a polished, white-background version of a clothing image."""
+async def polish_image(
+    file: UploadFile = File(...),
+    garment_type: str = Form(...),
+    mannequin_form: str = Form(...),
+) -> Response:
+    """Dress a studio mannequin in the garment worn by the person in the photo."""
     image_bytes = await file.read()
-    result = image_generation.polish_clothing_image(image_bytes)
+    try:
+        result = image_generation.polish_clothing_image(
+            image_bytes, garment_type, mannequin_form, file.content_type or "image/png"
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     if result is None:
         raise HTTPException(status_code=502, detail="Image generation returned no image.")
     return Response(content=result, media_type="image/png")

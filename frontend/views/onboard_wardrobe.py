@@ -5,6 +5,29 @@ from io import BytesIO
 from PIL import Image
 
 
+# Garment types offered in the onboarding dropdown, mapped to the noun used in the prompt.
+GARMENT_TYPE_LABELS = {
+    "top": "Top",
+    "bottom": "Bottom",
+    "full": "Full / Dress",
+}
+
+# Mannequin forms offered in the onboarding dropdown, mapped to friendly labels.
+MANNEQUIN_FORM_LABELS = {
+    "full_front": "Full body · front",
+    "full_side": "Full body · side",
+    "top": "Upper body (head to hips)",
+    "bottom": "Lower body (waist to feet)",
+}
+
+# Sensible default mannequin form for each garment type (still user-overridable).
+DEFAULT_FORM_BY_GARMENT = {
+    "top": "top",
+    "bottom": "bottom",
+    "full": "full_front",
+}
+
+
 class OnboardWardrobe:
     def __init__(self, user_id: int):
         self.user_id = user_id
@@ -15,6 +38,24 @@ class OnboardWardrobe:
 
     def display_image_generator(self):
         image = st.file_uploader("Upload an image of your clothing item", type=["png", "jpg", "jpeg"])
+
+        # What to transfer and which mannequin to dress it on.
+        cols = st.columns([5, 5])
+        with cols[0]:
+            garment_type = st.selectbox(
+                "Garment type",
+                options=list(GARMENT_TYPE_LABELS),
+                format_func=lambda x: GARMENT_TYPE_LABELS[x],
+                key="garment_type",
+            )
+        with cols[1]:
+            mannequin_form = st.selectbox(
+                "Mannequin form",
+                options=list(MANNEQUIN_FORM_LABELS),
+                index=list(MANNEQUIN_FORM_LABELS).index(DEFAULT_FORM_BY_GARMENT[garment_type]),
+                format_func=lambda x: MANNEQUIN_FORM_LABELS[x],
+                key="mannequin_form",
+            )
 
         cols = st.columns([5, 5])
         with cols[0]:
@@ -34,7 +75,7 @@ class OnboardWardrobe:
             with st.status("Hang on while we polish your clothing ...", expanded=True) as status:
                 st.write("Washing and ironing ...")
 
-                response = api_utils.polish_clothing_image(image)
+                response = api_utils.polish_clothing_image(image, garment_type, mannequin_form)
                 if response.status_code != 200 or not response.content:
                     st.error("Failed to generate preview.")
                     return

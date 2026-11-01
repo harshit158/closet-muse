@@ -24,9 +24,12 @@ def _get(path: str, **kwargs) -> requests.Response:
     return requests.get(f"{settings.backend_url}{path}", timeout=TIMEOUT, **kwargs)
 
 
-def polish_clothing_image(image: BytesIO) -> requests.Response:
+def polish_clothing_image(
+    image: BytesIO, garment_type: str, mannequin_form: str
+) -> requests.Response:
     files = {"file": (image.name, image.getvalue(), image.type)}
-    return _post("/images/polish/", files=files)
+    data = {"garment_type": garment_type, "mannequin_form": mannequin_form}
+    return _post("/images/polish/", files=files, data=data)
 
 
 def generate_clothing_attributes(image: BytesIO) -> ClothingBase | None:

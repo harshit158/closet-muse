@@ -1,4 +1,4 @@
-.PHONY: install backend frontend dev seed clean
+.PHONY: install backend frontend dev seed mannequins clean
 
 VENV := .venv
 UVICORN := $(VENV)/bin/uvicorn
@@ -17,6 +17,9 @@ dev:
 
 seed:
 	uv run python -m closet_muse.seed
+
+mannequins:
+	uv run python scripts/generate_mannequins.py --overwrite
 
 clean:
 	rm -f var/*.db

@@ -11,6 +11,13 @@ class Settings(BaseSettings):
 
     # api keys
     gemini_api_key: str | None = None
+    openrouter_api_key: str | None = None
+
+    # image generation (OpenRouter)
+    image_model: str = "meta/muse-image"
+    image_aspect_ratio: str = "2:3"
+    image_seed: int = 42
+    mannequin_dir: str = "assets/avatar"
 
     # local database (SQLite)
     sqlite_path: str = "var/closet_muse.db"
@@ -22,7 +29,7 @@ class Settings(BaseSettings):
     storage_bucket_generated: str = "generated"  # stores generated outfit images
 
     # virtual try-on model image
-    model_image_path: str = "assets/model3.jpg"
+    model_image_path: str = "assets/avatar/model.jpg"
 
     # personal settings
     personal_note: str | None = None
