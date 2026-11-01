@@ -1,8 +1,10 @@
-"""Image generation via OpenRouter (e-commerce polish) and Gemini (virtual try-on).
+"""Image generation via the OpenRouter image API (``meta/muse-image``).
 
-The onboarding "polish" step dresses a reusable studio mannequin in the garment
-worn by the person in the uploaded photo, using the OpenRouter image API
-(``meta/muse-image``). The virtual try-on step still uses Google Gemini.
+Two flows use the same API:
+
+* the onboarding "polish" step dresses a reusable studio mannequin in the garment
+  worn by the person in the uploaded photo; and
+* the outfit generator dresses a model in the selected wardrobe items (virtual try-on).
 """
 
 import base64
@@ -10,14 +12,10 @@ from io import BytesIO
 from pathlib import Path
 
 import requests
-from google.genai import types
 from PIL import Image
 
 from closet_muse.domain.schemas import ClothingWithImage
-from closet_muse.services.gemini import get_client
 from closet_muse.settings import settings
-
-MODEL = "gemini-2.5-flash-image"
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/images"
 OPENROUTER_TIMEOUT = 180
@@ -164,8 +162,31 @@ def build_dressed_prompt(garment_type: str, mannequin_form: str = "full_front") 
     )
 
 
-def _to_data_url(data: bytes, mime: str = "image/png") -> str:
-    """Return a ``data:`` URL for the given image bytes."""
+def _detect_mime(data: bytes) -> str:
+    """Detect an image's MIME type from its bytes, defaulting to ``image/png``."""
+    try:
+        with Image.open(BytesIO(data)) as img:
+            fmt = (img.format or "").upper()
+    except Exception:  # noqa: BLE001 - fall back to a safe default
+        return "image/png"
+    return {
+        "JPEG": "image/jpeg",
+        "JPG": "image/jpeg",
+        "PNG": "image/png",
+        "WEBP": "image/webp",
+        "GIF": "image/gif",
+        "BMP": "image/bmp",
+    }.get(fmt, "image/png")
+
+
+def _to_data_url(data: bytes, mime: str | None = None) -> str:
+    """Return a ``data:`` URL for the given image bytes.
+
+    The MIME type is detected from the bytes unless one is explicitly given, so
+    the declared type always matches the actual image (OpenRouter rejects a
+    mismatch with a 400).
+    """
+    mime = mime or _detect_mime(data)
     return f"data:{mime};base64,{base64.b64encode(data).decode()}"
 
 
@@ -240,16 +261,38 @@ def polish_clothing_image(
 
 
 # ---------------------------------------------------------------------------
-# Virtual try-on (Gemini)
+# Virtual try-on (OpenRouter)
 # ---------------------------------------------------------------------------
 
 _TRYON_PROMPT = """
-Replace the women's outfit with the outfit composed of following clothing items in the given images:
+Using the uploaded photograph of a person as the subject and the uploaded clothing images as references, dress the person in the outfit composed of the following clothing items:
 {clothing_details}
 
-Preserve the subject's face, hair and hand positions exactly; keep skin texture identical.
-Preserve the colors, styles and patterns in the given clothing items.
-Keep original lighting and shadows. Use photorealistic fabric textures.
+OBJECTIVE:
+Present the person wearing the given clothing items so the outfit is immediately readable, while keeping the person's identity and pose intact.
+
+1. GARMENT IDENTIFICATION
+* Reproduce each clothing item's exact design: color, fabric, pattern, texture, seams, stitching, hardware, and any logos or prints.
+* Do not substitute, restyle, recolor, or redesign any garment.
+* Do not add garments that are not part of the given clothing items (no extra layers, belts, or accessories).
+
+2. FIT AND DRAPE
+* Dress the person in the given items with a natural fit and drape.
+* Match the garment's length: hem position, sleeve length, rise, and inseam.
+* Match how each garment sits on the shoulders, chest, waist, hips, and legs.
+
+3. SUBJECT PRESERVATION
+* Preserve the subject's face, hair, and hand positions exactly; keep skin texture identical.
+* Keep the subject's body proportions and pose unchanged.
+* Keep the original lighting and shadows.
+
+4. OUTPUT QUALITY
+* High-resolution render with a clean silhouette.
+* The outfit is immediately readable from the image alone.
+* Suitable as a virtual clothing try-on preview.
+
+IMPORTANT:
+The person must wear exactly the given clothing items, with their colors, styles, and patterns preserved.
 """
 
 
@@ -267,23 +310,56 @@ def generate_fashion_image(
     clothings: dict[str, ClothingWithImage], model_path: str
 ) -> Image.Image | None:
     """Generate a virtual try-on image and return it as a PIL image."""
-    contents: list[types.Part] = []
+    if not settings.openrouter_api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set. Configure it in your .env file."
+        )
 
-    contents.extend(
-        types.Part.from_bytes(data=clothing.image_data, mime_type="image/png")
+    model_file = Path(model_path)
+    if not model_file.is_file():
+        raise FileNotFoundError(f"Model image not found: {model_file}")
+
+    # The model photo is the subject; each clothing image is a reference.
+    input_references = [
+        {
+            "type": "image_url",
+            "image_url": {"url": _to_data_url(model_file.read_bytes())},
+        }
+    ]
+    input_references.extend(
+        {
+            "type": "image_url",
+            "image_url": {"url": _to_data_url(clothing.image_data)},
+        }
         for clothing in clothings.values()
         if clothing.image_data
     )
 
-    with open(model_path, "rb") as model_file:
-        contents.append(types.Part.from_bytes(data=model_file.read(), mime_type="image/png"))
+    payload = {
+        "model": settings.image_model,
+        "prompt": _build_tryon_prompt(clothings),
+        "aspect_ratio": settings.image_aspect_ratio,
+        "input_references": input_references,
+        "n": 1,
+        "output_format": "png",
+        "seed": settings.image_seed,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Content-Type": "application/json",
+    }
 
-    contents.append(types.Part.from_text(text=_build_tryon_prompt(clothings)))
+    response = requests.post(
+        OPENROUTER_API_URL, json=payload, headers=headers, timeout=OPENROUTER_TIMEOUT
+    )
+    response.raise_for_status()
+    body = response.json()
 
-    response = get_client().models.generate_content(model=MODEL, contents=contents)
+    if body.get("error"):
+        raise RuntimeError(f"OpenRouter API error: {body['error']}")
 
-    for part in response.candidates[0].content.parts:
-        if part.inline_data:
-            return Image.open(BytesIO(part.inline_data.data))
+    data = body.get("data") or []
+    if not data or not data[0].get("b64_json"):
+        return None
 
-    return None
+    return Image.open(BytesIO(base64.b64decode(data[0]["b64_json"])))

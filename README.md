@@ -10,7 +10,7 @@ Two processes talk to each other over HTTP:
 frontend/  (Streamlit UI)  --- HTTP --->  src/closet_muse/api  (FastAPI)
                                                      |
                                                      +--> src/closet_muse/db       (SQLite via SQLModel)
-                                                     +--> src/closet_muse/services (Gemini, Ollama, local storage)
+                                                     +--> src/closet_muse/services (OpenRouter, Ollama, local storage)
 ```
 
 - `src/closet_muse/` — the importable application package (backend API + shared domain).
@@ -21,7 +21,7 @@ frontend/  (Streamlit UI)  --- HTTP --->  src/closet_muse/api  (FastAPI)
 - Python >= 3.11
 - [uv](https://docs.astral.sh/uv/)
 - [Ollama](https://ollama.com/) running locally with the `qwen3-vl:4b` model (for attribute extraction)
-- A Google Gemini API key (for image generation)
+- An OpenRouter API key (for image generation)
 
 ## Setup
 

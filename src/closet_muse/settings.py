@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:8000"
 
     # api keys
-    gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
 
     # image generation (OpenRouter)

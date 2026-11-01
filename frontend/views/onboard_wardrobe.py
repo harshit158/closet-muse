@@ -2,7 +2,6 @@ import streamlit as st
 from frontend import api_utils, styles
 from closet_muse.domain import enums, schemas
 from io import BytesIO
-from PIL import Image
 
 
 # Garment types offered in the onboarding dropdown, mapped to the noun used in the prompt.
@@ -81,7 +80,9 @@ class OnboardWardrobe:
                     return
 
                 generated_image = BytesIO(response.content)
-                st.session_state.clothing_image = Image.open(generated_image)
+                generated_image.name = "preview.png"
+                generated_image.type = "image/png"
+                st.session_state.clothing_image = generated_image
                 generated_image_placeholder.image(
                     generated_image, caption="Generated Preview", width="stretch"
                 )
