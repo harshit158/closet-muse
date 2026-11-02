@@ -87,6 +87,12 @@ FRAMING_BY_FORM = {
         "Show only the lower body, from the waist down to the feet, exactly as cropped in the "
         "uploaded mannequin image. Do not extend the crop, and do not add a head or upper body."
     ),
+    "feet": (
+        "Show only the knees, lower legs, and feet of the display form: the top edge of the "
+        "frame is at the kneecaps so no thigh is visible. Match the crop of the uploaded "
+        "mannequin image. Do not extend the crop upward to include the thighs, hips, or upper "
+        "body, and do not add a head, torso, or arms."
+    ),
 }
 
 # Camera view per mannequin form, so the output matches the reference image's orientation.
@@ -99,6 +105,7 @@ VIEW_BY_FORM = {
     ),
     "top": "Straight-on front view, matching the uploaded mannequin image.",
     "bottom": "Straight-on front view, matching the uploaded mannequin image.",
+    "feet": "Straight-on front view, matching the uploaded mannequin image.",
 }
 
 # How the reference mannequin image is described in the prompt, per form.
@@ -107,6 +114,7 @@ VIEW_REFERENCE_BY_FORM = {
     "full_side": "side-view mannequin image",
     "top": "front-view mannequin image",
     "bottom": "front-view mannequin image",
+    "feet": "front-view mannequin image",
 }
 
 # Reference mannequin image filename per form (under ``settings.mannequin_dir``).
@@ -115,6 +123,7 @@ MANNEQUIN_FILE_BY_FORM = {
     "full_side": "mannequin_side.png",
     "top": "mannequin_top.png",
     "bottom": "mannequin_bottom.png",
+    "feet": "mannequin_feet.png",
 }
 
 # When the focus garment is a top on a CROPPED (upper-body) mannequin, the mannequin also
@@ -132,33 +141,52 @@ COMPLEMENTARY_BOTTOM_NOTE_FOR_TOP = """The neutral bottom is only a filler to ke
 The bottom must stay within the existing crop: the frame must end exactly where the uploaded mannequin image ends, and must not be extended downward to reveal more of the bottom.
 """
 
+# When the focus item is footwear on the CROPPED (lower-legs and feet) mannequin, the display
+# form must actually be shown WEARING the shoes, so the product is the visible subject.
+FOOTWEAR_ON_FORM = """* The display form must be shown wearing the {garment_type} on its feet: the shoes are the subject and must be fully visible and clearly readable.
+* Present the pair as a matching set: keep the left and right shoe identical in design, color, and finish.
+* Reproduce the exact design: color, material, texture, pattern, sole shape, heel height, closures, stitching, and any logos or prints.
+* Do not substitute, restyle, recolor, or redesign the shoes.
+* Do not add any other item to the form (no clothing, hosiery, socks, or accessories) beyond what the uploaded photograph shows.
+* Do not show the form without the {garment_type} on its feet.
+"""
+
+FOOTWEAR_ON_FORM_NOTE = """The {garment_type} must be worn on the display form's feet and must be the clearly visible subject.
+The form must stay within the existing crop: the frame must end exactly where the uploaded mannequin image ends, and must not be extended upward to reveal more of the legs or body.
+"""
+
 
 def build_dressed_prompt(garment_type: str, mannequin_form: str = "full_front") -> str:
     """Build the dressed-mannequin prompt for a garment type and mannequin form.
 
     ``mannequin_form`` must match the reference mannequin image: ``"full_front"``, ``"full_side"``,
-    ``"top"`` (head to upper hips), or ``"bottom"`` (waist to feet).
+    ``"top"`` (head to upper hips), ``"bottom"`` (waist to feet), or ``"feet"`` (lower legs and feet).
     """
     if mannequin_form not in FRAMING_BY_FORM:
         raise ValueError(
             f"mannequin_form must be one of {sorted(FRAMING_BY_FORM)}, got {mannequin_form!r}"
         )
 
-    # A neutral bottom only makes sense on a cropped upper-body mannequin.
+    # A neutral bottom only makes sense on a cropped upper-body mannequin, and the
+    # footwear guidance only applies to the cropped lower-legs/feet form.
     needs_bottom = mannequin_form == "top"
-    complementary_bottom = (
-        COMPLEMENTARY_BOTTOM_FOR_TOP.format(garment_type=garment_type) if needs_bottom else ""
-    )
-    complementary_bottom_note = (
-        COMPLEMENTARY_BOTTOM_NOTE_FOR_TOP.format(garment_type=garment_type) if needs_bottom else ""
-    )
+    needs_footwear = mannequin_form == "feet"
+    if needs_bottom:
+        extra_guidance = COMPLEMENTARY_BOTTOM_FOR_TOP.format(garment_type=garment_type)
+        extra_note = COMPLEMENTARY_BOTTOM_NOTE_FOR_TOP.format(garment_type=garment_type)
+    elif needs_footwear:
+        extra_guidance = FOOTWEAR_ON_FORM.format(garment_type=garment_type)
+        extra_note = FOOTWEAR_ON_FORM_NOTE.format(garment_type=garment_type)
+    else:
+        extra_guidance = ""
+        extra_note = ""
     return prompt_mannequin_dressed_template.format(
         garment_type=garment_type,
         view=VIEW_BY_FORM[mannequin_form],
         view_reference=VIEW_REFERENCE_BY_FORM[mannequin_form],
         framing=FRAMING_BY_FORM[mannequin_form],
-        complementary_bottom=complementary_bottom,
-        complementary_bottom_note=complementary_bottom_note,
+        complementary_bottom=extra_guidance,
+        complementary_bottom_note=extra_note,
     )
 
 
@@ -293,6 +321,7 @@ Present the person wearing the given clothing items so the outfit is immediately
 
 IMPORTANT:
 The person must wear exactly the given clothing items, with their colors, styles, and patterns preserved.
+Footwear items must be worn on the subject's feet and be clearly visible in the final image.
 """
 
 
