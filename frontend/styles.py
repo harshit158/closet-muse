@@ -54,6 +54,13 @@ def inject_css() -> None:
             --cm-radius-sm: 10px;
             --cm-shadow: 0 6px 24px rgba(46, 42, 38, 0.08);
             --cm-shadow-hover: 0 10px 30px rgba(46, 42, 38, 0.14);
+
+            /* Layout offsets — keep the pinned hero + pinned panels aligned.
+               --cm-header-h is the native Streamlit toolbar height; the hero
+               pins directly under it, and the cards pin under the hero. */
+            --cm-header-h: 3.75rem;
+            --cm-hero-h: 4.35rem;
+            --cm-panel-top: calc(var(--cm-header-h) + var(--cm-hero-h) + 0.5rem);
             --cm-space: 1.25rem;
         }}
 
@@ -74,11 +81,19 @@ def inject_css() -> None:
         }}
 
         /* ---- Hero (compact horizontal band) ---- */
+        /* The hero is pinned so it never scrolls away; every other pinned
+           panel uses --cm-panel-top to sit just below it. */
+        [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] .cm-hero) {{
+            position: sticky;
+            top: var(--cm-header-h);
+            z-index: 4;
+            background: var(--cm-bg);
+        }}
         .cm-hero {{
             background: linear-gradient(135deg, #F3E7E2 0%, #EFE2DA 45%, #E9DDD2 100%);
             border-radius: var(--cm-radius);
             padding: 0.85rem 1.5rem;
-            margin-bottom: 1rem;
+            margin-bottom: 0.5rem;
             box-shadow: var(--cm-shadow);
             display: flex;
             align-items: center;
@@ -283,12 +298,34 @@ def inject_css() -> None:
             box-shadow: var(--cm-shadow);
         }}
 
-        /* ---- Sticky look panel ---- */
-        div[data-testid="stColumn"]:has([class*="st-key-cm-card-look-panel"]) {{
+        /* ---- Sticky columns (Studio layout) ----
+           Only the wardrobe gallery should scroll. The categories card,
+           the "Selected pieces" column and the "Your Look" panel all stay
+           pinned so the selection context never leaves the screen. */
+        div[data-testid="stColumn"]:has([class*="st-key-cm-card-look-panel"]),
+        div[data-testid="stColumn"]:has([class*="st-key-cm-card-selected"]) {{
             position: sticky;
-            top: 4.5rem;
+            top: var(--cm-panel-top);
             align-self: flex-start;
         }}
+
+        /* Pin the categories card to the top of the first column so it stays
+           put while the wardrobe gallery beneath it scrolls.
+           NOTE: the card is itself a flex item, and `position: sticky` on a
+           flex item defaults to `align-self: stretch` — the stretched box has
+           no free space to travel in, so the card would never actually pin.
+           Pinning the parent wrapper (which is NOT a flex item) and letting
+           the card stretch to its height keeps the card pinned at full width. */
+        div[data-testid="stLayoutWrapper"]:has(> [class*="st-key-cm-card-categories"]) {{
+            position: sticky;
+            top: var(--cm-panel-top);
+            z-index: 3;
+        }}
+
+        /* ---- Only the wardrobe gallery scrolls ----
+           The categories card, the "Selected pieces" column and the "Your
+           Look" panel are all pinned, so scrolling the page only moves the
+           garment groups (everything below the category pills). */
 
         /* Streamlit 1.50 bug: st.image(width="stretch") collapses to a tiny
            width when rendered inside st.empty().container(). Force images in
