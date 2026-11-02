@@ -12,7 +12,7 @@ dependencies = [
     "python-dotenv>=1.2.0",
     "python-multipart>=0.0.20",
     "sqlmodel>=0.0.27",
-    "streamlit==1.50.0",
+    "streamlit==1.66.1",
     "streamlit-extras>=0.7.8",
     "streamlit-image-select>=0.6.0",
     "uvicorn>=0.38.0",
