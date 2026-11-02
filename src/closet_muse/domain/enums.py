@@ -67,10 +67,21 @@ class AccessoryCategory(Enum):
     LEGWEAR = "Stockings / Tights"
 
 
+class FootwearCategory(Enum):
+    HEELS = "Heels"
+    FLATS = "Flats"
+    SNEAKERS = "Sneakers"
+    BOOTS = "Boots"
+    SANDALS = "Sandals"
+    LOAFERS = "Loafers"
+    OTHER = "Other"
+
+
 class WomenClothingMainCategory(str, Enum):
     TOPS = "Tops"
     BOTTOMS = "Bottoms"
     ONE_PIECE = "One-Piece Outfits"
+    FOOTWEAR = "Footwear"
     OUTERWEAR = "Outerwear"
     INTIMATES_LOUNGE = "Intimates & Loungewear"
     ACTIVEWEAR = "Activewear"
@@ -83,6 +94,7 @@ CATEGORY_MAPPING = {
     WomenClothingMainCategory.TOPS: TopCategory,
     WomenClothingMainCategory.BOTTOMS: BottomCategory,
     WomenClothingMainCategory.ONE_PIECE: OnePieceCategory,
+    WomenClothingMainCategory.FOOTWEAR: FootwearCategory,
     WomenClothingMainCategory.OUTERWEAR: OuterwearCategory,
     WomenClothingMainCategory.INTIMATES_LOUNGE: IntimateLoungewearCategory,
     WomenClothingMainCategory.ACTIVEWEAR: ActivewearCategory,

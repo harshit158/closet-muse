@@ -9,6 +9,7 @@ GARMENT_TYPE_LABELS = {
     "top": "Top",
     "bottom": "Bottom",
     "full": "Full / Dress",
+    "footwear": "Footwear (shoes)",
 }
 
 # Mannequin forms offered in the onboarding dropdown, mapped to friendly labels.
@@ -17,6 +18,7 @@ MANNEQUIN_FORM_LABELS = {
     "full_side": "Full body · side",
     "top": "Upper body (head to hips)",
     "bottom": "Lower body (waist to feet)",
+    "feet": "Below knees & feet",
 }
 
 # Sensible default mannequin form for each garment type (still user-overridable).
@@ -24,6 +26,7 @@ DEFAULT_FORM_BY_GARMENT = {
     "top": "top",
     "bottom": "bottom",
     "full": "full_front",
+    "footwear": "feet",
 }
 
 
