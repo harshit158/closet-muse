@@ -43,6 +43,17 @@ make dev       # both, in parallel
 make seed      # create a local user in the SQLite DB
 ```
 
+## Assets
+
+```bash
+make mannequins  # regenerate the try-on mannequins in assets/avatar/
+make model       # generate a fashion-model subject from reference photo(s)
+```
+
+`scripts/generate_model.py` builds one photorealistic model image from one or
+more reference photos of the same person (pass several with
+`--reference-image photo1.jpg photo2.jpg face.jpg`).
+
 ## Local data
 
 - SQLite database: `var/closet_muse.db` (git-ignored)

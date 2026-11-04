@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     storage_bucket_generated: str = "generated"  # stores generated outfit images
 
     # virtual try-on model image
-    model_image_path: str = "assets/avatar/model.jpg"
+    model_image_path: str = "assets/avatar/model_generated.png"
 
     # personal settings
     personal_note: str | None = None
