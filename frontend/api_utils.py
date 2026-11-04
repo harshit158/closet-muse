@@ -5,6 +5,7 @@ never import ``closet_muse.db`` or ``closet_muse.services``.
 """
 
 from io import BytesIO
+from typing import Protocol
 
 import requests
 from PIL import Image
@@ -16,6 +17,27 @@ from closet_muse.settings import settings
 TIMEOUT = 300
 
 
+class FileLike(Protocol):
+    """The minimal file interface the upload endpoints need.
+
+    Both Streamlit's ``UploadedFile`` and ``NamedBytesIO`` satisfy this.
+    """
+
+    name: str
+    type: str
+
+    def getvalue(self) -> bytes: ...
+
+
+class NamedBytesIO(BytesIO):
+    """BytesIO carrying ``name`` and ``type`` so it can be uploaded like a file."""
+
+    def __init__(self, data: bytes, name: str, type: str = "image/png") -> None:  # noqa: A002
+        super().__init__(data)
+        self.name = name
+        self.type = type
+
+
 def _post(path: str, **kwargs) -> requests.Response:
     return requests.post(f"{settings.backend_url}{path}", timeout=TIMEOUT, **kwargs)
 
@@ -25,15 +47,15 @@ def _get(path: str, **kwargs) -> requests.Response:
 
 
 def polish_clothing_image(
-    image: BytesIO, garment_type: str, mannequin_form: str
+    images: list[FileLike], garment_type: str, mannequin_form: str
 ) -> requests.Response:
-    files = {"file": (image.name, image.getvalue(), image.type)}
+    files = [("files", (image.name, image.getvalue(), image.type)) for image in images]
     data = {"garment_type": garment_type, "mannequin_form": mannequin_form}
     return _post("/images/polish/", files=files, data=data)
 
 
-def generate_clothing_attributes(image: BytesIO) -> ClothingBase | None:
-    files = {"file": (image.name, image.getvalue(), image.type)}
+def generate_clothing_attributes(images: list[FileLike]) -> ClothingBase | None:
+    files = [("files", (image.name, image.getvalue(), image.type)) for image in images]
     try:
         response = _post("/images/attributes/", files=files)
         response.raise_for_status()
@@ -43,7 +65,7 @@ def generate_clothing_attributes(image: BytesIO) -> ClothingBase | None:
         return None
 
 
-def upload_image(bucket: str, file: BytesIO) -> str:
+def upload_image(bucket: str, file: FileLike) -> str:
     files = {"file": (file.name, file.getvalue(), file.type)}
     response = _post(f"/images/upload/{bucket}/", files=files)
     response.raise_for_status()
@@ -56,7 +78,7 @@ def fetch_image(bucket: str, filename: str) -> bytes:
     return response.content
 
 
-def add_clothing_item(user_id: int, clothing: ClothingBase, image: BytesIO) -> dict:
+def add_clothing_item(user_id: int, clothing: ClothingBase, image: FileLike) -> dict:
     # Upload first, then attach the returned filename to the record.
     filename = upload_image(settings.storage_bucket_clothing, image)
     payload = clothing.model_dump(mode="json")
@@ -96,7 +118,7 @@ def generate_outfit(user_id: int, clothing_ids: list[str]) -> Image.Image | None
     return Image.open(BytesIO(response.content))
 
 
-def upload_avatar(user_id: int, image: BytesIO) -> dict:
+def upload_avatar(user_id: int, image: FileLike) -> dict:
     """Upload and store an avatar image for a user; return the avatar record."""
     files = {"file": (image.name, image.getvalue(), image.type)}
     response = _post(f"/users/{user_id}/avatar/", files=files)
