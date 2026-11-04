@@ -3,12 +3,17 @@ from frontend import api_utils, styles
 from closet_muse.domain import enums, schemas
 
 
-# Garment types offered in the onboarding dropdown, mapped to the noun used in the prompt.
-GARMENT_TYPE_LABELS = {
-    "top": "Top",
-    "bottom": "Bottom",
-    "full": "Full / Dress",
-    "footwear": "Footwear (shoes)",
+# Garment types offered in the onboarding dropdown = the main clothing categories.
+# Each maps to the natural noun used in the image-generation prompt (the model reads
+# this text verbatim, so it must read like a garment, not like a category label).
+GARMENT_TYPE_NOUNS = {
+    enums.WomenClothingMainCategory.TOPS: "top",
+    enums.WomenClothingMainCategory.BOTTOMS: "bottom",
+    enums.WomenClothingMainCategory.ONE_PIECE: "one-piece garment",
+    enums.WomenClothingMainCategory.FOOTWEAR: "shoes",
+    enums.WomenClothingMainCategory.OUTERWEAR: "outerwear garment",
+    enums.WomenClothingMainCategory.LOUNGEWEAR: "loungewear",
+    enums.WomenClothingMainCategory.ACCESSORIES: "accessory",
 }
 
 # Mannequin forms offered in the onboarding dropdown, mapped to friendly labels.
@@ -20,12 +25,16 @@ MANNEQUIN_FORM_LABELS = {
     "feet": "Below knees & feet",
 }
 
-# Sensible default mannequin form for each garment type (still user-overridable).
+# Sensible default mannequin form per garment type (still user-overridable).
+# Categories without an obvious form fall back to "full_front" via .get(...).
 DEFAULT_FORM_BY_GARMENT = {
-    "top": "top",
-    "bottom": "bottom",
-    "full": "full_front",
-    "footwear": "feet",
+    enums.WomenClothingMainCategory.TOPS: "top",
+    enums.WomenClothingMainCategory.BOTTOMS: "bottom",
+    enums.WomenClothingMainCategory.ONE_PIECE: "full_front",
+    enums.WomenClothingMainCategory.FOOTWEAR: "feet",
+    enums.WomenClothingMainCategory.OUTERWEAR: "top",
+    enums.WomenClothingMainCategory.LOUNGEWEAR: "full_front",
+    enums.WomenClothingMainCategory.ACCESSORIES: "full_front",
 }
 
 
@@ -52,6 +61,23 @@ class OnboardWardrobe:
             (photo.name, len(photo.getvalue())) for photo in (uploads or [])
         )
 
+    @staticmethod
+    def _default_form_for(garment_type: enums.WomenClothingMainCategory) -> str:
+        """The sensible default mannequin form for a garment type."""
+        return DEFAULT_FORM_BY_GARMENT.get(garment_type, "full_front")
+
+    def _on_garment_type_change(self) -> None:
+        """Snap the mannequin form to the new garment type's default.
+
+        Streamlit keeps a keyed widget's stored value over its ``index``, so the
+        form would otherwise stay on its first value when the category changes.
+        Rewriting the key here keeps the two controls in sync; the user can still
+        override the form afterwards (a manual change does not re-trigger this).
+        """
+        st.session_state.mannequin_form = self._default_form_for(
+            st.session_state.garment_type
+        )
+
     def display_image_generator(self):
         uploads = st.file_uploader(
             "Upload one or more photos of your clothing item",
@@ -69,15 +95,18 @@ class OnboardWardrobe:
         with cols[0]:
             garment_type = st.selectbox(
                 "Garment type",
-                options=list(GARMENT_TYPE_LABELS),
-                format_func=lambda x: GARMENT_TYPE_LABELS[x],
+                options=list(enums.WomenClothingMainCategory),
+                format_func=lambda category: category.value,
                 key="garment_type",
+                on_change=self._on_garment_type_change,
             )
         with cols[1]:
             mannequin_form = st.selectbox(
                 "Mannequin form",
                 options=list(MANNEQUIN_FORM_LABELS),
-                index=list(MANNEQUIN_FORM_LABELS).index(DEFAULT_FORM_BY_GARMENT[garment_type]),
+                index=list(MANNEQUIN_FORM_LABELS).index(
+                    self._default_form_for(garment_type)
+                ),
                 format_func=lambda x: MANNEQUIN_FORM_LABELS[x],
                 key="mannequin_form",
             )
@@ -118,7 +147,7 @@ class OnboardWardrobe:
                 st.write("Washing and ironing ...")
 
                 response = api_utils.polish_clothing_image(
-                    list(uploads), garment_type, mannequin_form
+                    list(uploads), GARMENT_TYPE_NOUNS[garment_type], mannequin_form
                 )
                 if response.status_code != 200 or not response.content:
                     st.error("Failed to generate preview.")
@@ -128,30 +157,23 @@ class OnboardWardrobe:
                 st.session_state.clothing_image = generated_image
 
                 st.write("Analyzing for details ...")
-                st.session_state.clothing_attributes = api_utils.generate_clothing_attributes(
-                    list(uploads)
-                )
+                attrs = api_utils.generate_clothing_attributes(list(uploads))
+                st.session_state.clothing_attributes = attrs
+
+                # Let the extracted category drive the Garment type dropdown so the
+                # item lands in the same main category it was polished/detected as.
+                if attrs is not None:
+                    st.session_state.garment_type = attrs.main_category
                 st.rerun()
 
     @st.fragment
     def display_clothing_form(self):
-        # Initialize session state for category if not exists
-        if 'main_category' not in st.session_state:
-            st.session_state.main_category = list(enums.WomenClothingMainCategory)[0]
-
         attrs = st.session_state.clothing_attributes
 
-        # CATEGORY
-        index = (
-            list(enums.WomenClothingMainCategory).index(attrs.main_category)
-            if attrs is not None
-            else None
-        )
-        main_category = st.selectbox(
-            "Category",
-            index=index,
-            options=list(enums.WomenClothingMainCategory),
-            format_func=lambda x: x.value
+        # CATEGORY — driven by the Garment type selection in the preview step
+        # (which itself is pre-filled from the extracted attributes).
+        main_category = st.session_state.get(
+            "garment_type", list(enums.WomenClothingMainCategory)[0]
         )
 
         # SUB CATEGORY
