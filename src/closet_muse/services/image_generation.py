@@ -8,6 +8,7 @@ Two flows use the same API:
 """
 
 import base64
+from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
 
@@ -25,7 +26,7 @@ OPENROUTER_TIMEOUT = 180
 # ---------------------------------------------------------------------------
 
 prompt_mannequin_dressed_template = """
-Using the uploaded photograph of a real person and the uploaded {view_reference} as references, dress the mannequin in the {garment_type} worn by the person in the photograph, reproducing the exact fit of that garment.
+Using the uploaded photograph of a real person and the uploaded {view_reference} as references, dress the mannequin in the {garment_type} worn by the person in the photograph, reproducing the exact fit of that garment.{photo_guidance}
 
 OBJECTIVE:
 Transfer the {garment_type} from the person onto the mannequin so the mannequin alone communicates how the garment fits. 
@@ -117,6 +118,16 @@ VIEW_REFERENCE_BY_FORM = {
     "feet": "front-view mannequin image",
 }
 
+# Added to the prompt when the person's garment is supplied as several photos
+# (a primary shot plus additional angles or close-ups) in the same request.
+MULTI_PHOTO_GUIDANCE = (
+    "\n\nThe person's {garment_type} appears in several uploaded photographs: one primary "
+    "photo plus additional angles or close-ups. Treat every photo as the same single garment "
+    "and use them together to read its exact design, color, material, and fit. If the photos "
+    "disagree on a detail, prefer the primary photo for overall fit and the close-ups for "
+    "fabric, pattern, and construction details."
+)
+
 # Reference mannequin image filename per form (under ``settings.mannequin_dir``).
 MANNEQUIN_FILE_BY_FORM = {
     "full_front": "mannequin_front.png",
@@ -156,11 +167,15 @@ The form must stay within the existing crop: the frame must end exactly where th
 """
 
 
-def build_dressed_prompt(garment_type: str, mannequin_form: str = "full_front") -> str:
+def build_dressed_prompt(
+    garment_type: str, mannequin_form: str = "full_front", num_photos: int = 1
+) -> str:
     """Build the dressed-mannequin prompt for a garment type and mannequin form.
 
     ``mannequin_form`` must match the reference mannequin image: ``"full_front"``, ``"full_side"``,
     ``"top"`` (head to upper hips), ``"bottom"`` (waist to feet), or ``"feet"`` (lower legs and feet).
+    ``num_photos`` is the number of photos of the person's garment supplied as references;
+    when more than one is given, the prompt explains that they show the same garment.
     """
     if mannequin_form not in FRAMING_BY_FORM:
         raise ValueError(
@@ -180,6 +195,9 @@ def build_dressed_prompt(garment_type: str, mannequin_form: str = "full_front") 
     else:
         extra_guidance = ""
         extra_note = ""
+    photo_guidance = (
+        MULTI_PHOTO_GUIDANCE.format(garment_type=garment_type) if num_photos > 1 else ""
+    )
     return prompt_mannequin_dressed_template.format(
         garment_type=garment_type,
         view=VIEW_BY_FORM[mannequin_form],
@@ -187,6 +205,7 @@ def build_dressed_prompt(garment_type: str, mannequin_form: str = "full_front") 
         framing=FRAMING_BY_FORM[mannequin_form],
         complementary_bottom=extra_guidance,
         complementary_bottom_note=extra_note,
+        photo_guidance=photo_guidance,
     )
 
 
@@ -229,12 +248,19 @@ def _mannequin_reference_path(mannequin_form: str) -> Path:
 
 
 def polish_clothing_image(
-    image_bytes: bytes,
+    images: bytes | Sequence[bytes],
     garment_type: str,
     mannequin_form: str,
-    mime_type: str = "image/png",
+    mime_types: Sequence[str] | str | None = None,
 ) -> bytes | None:
-    """Dress a studio mannequin in the garment worn by the person in ``image_bytes``.
+    """Dress a studio mannequin in the garment worn by the person in the photo(s).
+
+    ``images`` accepts a single photo or several photos of the *same* garment
+    (a primary shot plus additional angles); every photo is attached as a
+    reference so the model can read the garment from all angles.
+
+    ``mime_types`` may be a single MIME type or one per image; when omitted the
+    MIME type is detected from each image's bytes.
 
     Returns the generated PNG bytes, or ``None`` if the API returned no image.
     """
@@ -243,11 +269,28 @@ def polish_clothing_image(
             "OPENROUTER_API_KEY is not set. Configure it in your .env file."
         )
 
+    # Accept a lone bytes object as well as a sequence, and normalise the MIME types.
+    image_list: list[bytes] = [bytes(images)] if isinstance(images, (bytes, bytearray)) else [bytes(i) for i in images]
+    if not image_list:
+        raise ValueError("At least one image is required to polish a garment.")
+
+    if mime_types is None:
+        mime_list: list[str | None] = [None] * len(image_list)
+    elif isinstance(mime_types, str):
+        mime_list = [mime_types] * len(image_list)
+    else:
+        mime_list = list(mime_types)
+        if len(mime_list) != len(image_list):
+            raise ValueError(
+                "mime_types must have the same length as images "
+                f"({len(mime_list)} != {len(image_list)})"
+            )
+
     reference_path = _mannequin_reference_path(mannequin_form)
     if not reference_path.is_file():
         raise FileNotFoundError(f"Mannequin reference image not found: {reference_path}")
 
-    prompt = build_dressed_prompt(garment_type, mannequin_form)
+    prompt = build_dressed_prompt(garment_type, mannequin_form, num_photos=len(image_list))
 
     payload = {
         "model": settings.image_model,
@@ -258,10 +301,13 @@ def polish_clothing_image(
                 "type": "image_url",
                 "image_url": {"url": _to_data_url(reference_path.read_bytes())},
             },
-            {
-                "type": "image_url",
-                "image_url": {"url": _to_data_url(image_bytes, mime_type)},
-            },
+            *(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": _to_data_url(image, mime)},
+                }
+                for image, mime in zip(image_list, mime_list)
+            ),
         ],
         "n": 1,
         "output_format": "png",

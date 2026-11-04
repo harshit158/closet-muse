@@ -11,15 +11,19 @@ router = APIRouter(prefix="/images", tags=["images"])
 
 @router.post("/polish/")
 async def polish_image(
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     garment_type: str = Form(...),
     mannequin_form: str = Form(...),
 ) -> Response:
-    """Dress a studio mannequin in the garment worn by the person in the photo."""
-    image_bytes = await file.read()
+    """Dress a studio mannequin in the garment worn by the person in the photo(s)."""
+    if not files:
+        raise HTTPException(status_code=422, detail="At least one image is required.")
+
+    image_bytes = [await file.read() for file in files]
+    mime_types = [file.content_type or "image/png" for file in files]
     try:
         result = image_generation.polish_clothing_image(
-            image_bytes, garment_type, mannequin_form, file.content_type or "image/png"
+            image_bytes, garment_type, mannequin_form, mime_types
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -31,9 +35,12 @@ async def polish_image(
 
 
 @router.post("/attributes/")
-async def extract_attributes(file: UploadFile = File(...)) -> ClothingBase:
-    """Extract clothing attributes from an image using the local vision model."""
-    image_bytes = await file.read()
+async def extract_attributes(files: list[UploadFile] = File(...)) -> ClothingBase:
+    """Extract clothing attributes from one or more photos of the item using the local vision model."""
+    if not files:
+        raise HTTPException(status_code=422, detail="At least one image is required.")
+
+    image_bytes = [await file.read() for file in files]
     return attribute_extraction.extract_clothing_attributes(image_bytes)
 
 

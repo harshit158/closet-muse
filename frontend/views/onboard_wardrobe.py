@@ -1,7 +1,6 @@
 import streamlit as st
 from frontend import api_utils, styles
 from closet_muse.domain import enums, schemas
-from io import BytesIO
 
 
 # Garment types offered in the onboarding dropdown, mapped to the noun used in the prompt.
@@ -38,8 +37,32 @@ class OnboardWardrobe:
         if "clothing_image" not in st.session_state:
             st.session_state.clothing_image = None
 
+        # attributes extracted from the uploaded photo(s)
+        if "clothing_attributes" not in st.session_state:
+            st.session_state.clothing_attributes = None
+
+        # fingerprint of the uploaded photo set, used to reset stale previews
+        if "onboard_upload_signature" not in st.session_state:
+            st.session_state.onboard_upload_signature = ()
+
+    @staticmethod
+    def _upload_signature(uploads) -> tuple:
+        """Fingerprint the uploaded files so a changed set can clear stale state."""
+        return tuple(
+            (photo.name, len(photo.getvalue())) for photo in (uploads or [])
+        )
+
     def display_image_generator(self):
-        image = st.file_uploader("Upload an image of your clothing item", type=["png", "jpg", "jpeg"])
+        uploads = st.file_uploader(
+            "Upload one or more photos of your clothing item",
+            type=["png", "jpg", "jpeg"],
+            accept_multiple_files=True,
+            key="onboard_uploader",
+            help=(
+                "Add photos of the same item from different angles (front, back, "
+                "and close-ups). The first photo is used as the primary reference."
+            ),
+        )
 
         # What to transfer and which mannequin to dress it on.
         cols = st.columns([5, 5])
@@ -59,43 +82,56 @@ class OnboardWardrobe:
                 key="mannequin_form",
             )
 
+        # Clear the preview and attributes whenever the uploaded set changes.
+        signature = self._upload_signature(uploads)
+        if signature != st.session_state.onboard_upload_signature:
+            st.session_state.onboard_upload_signature = signature
+            st.session_state.clothing_image = None
+            st.session_state.clothing_attributes = None
+
         cols = st.columns([5, 5])
         with cols[0]:
-            original_image_placeholder = st.empty()
+            if uploads:
+                thumb_cols = st.columns(min(len(uploads), 3))
+                for index, photo in enumerate(uploads):
+                    with thumb_cols[index % len(thumb_cols)]:
+                        caption = "Primary photo" if index == 0 else f"Photo {index + 1}"
+                        st.image(photo, caption=caption, width="stretch")
+            else:
+                st.caption("Your uploaded photos will appear here.")
         with cols[1]:
-            generated_image_placeholder = st.empty()
+            if st.session_state.clothing_image is not None:
+                st.image(
+                    st.session_state.clothing_image,
+                    caption="Generated Preview",
+                    width="stretch",
+                )
+            else:
+                st.caption("Your generated preview will appear here.")
 
-        if image:
-            original_image_placeholder.image(image, caption="Uploaded Image", width="stretch")
-            generated_image_placeholder.image(image, caption="Generated Preview", width="stretch")
-
-        if st.button("Generate Preview", width="stretch"):
-            if not image:
-                st.error("Please upload an image first.")
+        if st.button("Generate Preview", width="stretch", disabled=not uploads):
+            if not uploads:
+                st.error("Please upload at least one image first.")
                 return
 
-            with st.status("Hang on while we polish your clothing ...", expanded=True) as status:
+            with st.status("Hang on while we polish your clothing ...", expanded=True):
                 st.write("Washing and ironing ...")
 
-                response = api_utils.polish_clothing_image(image, garment_type, mannequin_form)
+                response = api_utils.polish_clothing_image(
+                    list(uploads), garment_type, mannequin_form
+                )
                 if response.status_code != 200 or not response.content:
                     st.error("Failed to generate preview.")
                     return
 
-                generated_image = BytesIO(response.content)
-                generated_image.name = "preview.png"
-                generated_image.type = "image/png"
+                generated_image = api_utils.NamedBytesIO(response.content, "preview.png")
                 st.session_state.clothing_image = generated_image
-                generated_image_placeholder.image(
-                    generated_image, caption="Generated Preview", width="stretch"
-                )
 
                 st.write("Analyzing for details ...")
-                generated_image.seek(0)
-                uploaded = BytesIO(response.content)
-                uploaded.name = "preview.png"
-                uploaded.type = "image/png"
-                self.clothing_attributes = api_utils.generate_clothing_attributes(uploaded)
+                st.session_state.clothing_attributes = api_utils.generate_clothing_attributes(
+                    list(uploads)
+                )
+                st.rerun()
 
     @st.fragment
     def display_clothing_form(self):
@@ -103,7 +139,7 @@ class OnboardWardrobe:
         if 'main_category' not in st.session_state:
             st.session_state.main_category = list(enums.WomenClothingMainCategory)[0]
 
-        attrs = getattr(self, "clothing_attributes", None)
+        attrs = st.session_state.clothing_attributes
 
         # CATEGORY
         index = (
