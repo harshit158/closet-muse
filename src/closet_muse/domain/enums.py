@@ -33,30 +33,10 @@ class OuterwearCategory(Enum):
     VEST = "Vest"
 
 
-class IntimateLoungewearCategory(Enum):
-    BRA = "Bra"
-    PANTY = "Panty"
+class LoungewearCategory(Enum):
     SLEEPWEAR = "Sleepwear"
     LOUNGEWEAR = "Loungewear"
     ROBE = "Robe"
-
-
-class ActivewearCategory(Enum):
-    TOP = "Active Top"
-    BOTTOM = "Active Bottom"
-    SET = "Active Set"
-    OUTERWEAR = "Active Outerwear"
-
-
-class EthnicWearCategory(Enum):
-    INDIAN = "Indian Wear"
-    MIDDLE_EASTERN = "Middle Eastern Wear"
-    FUSION = "Fusion Wear"
-
-
-class SwimwearCategory(Enum):
-    SWIMWEAR = "Swimwear"
-    COVERUP = "Cover-up"
 
 
 class AccessoryCategory(Enum):
@@ -83,10 +63,7 @@ class WomenClothingMainCategory(str, Enum):
     ONE_PIECE = "One-Piece Outfits"
     FOOTWEAR = "Footwear"
     OUTERWEAR = "Outerwear"
-    INTIMATES_LOUNGE = "Intimates & Loungewear"
-    ACTIVEWEAR = "Activewear"
-    ETHNIC = "Ethnic / Cultural Wear"
-    SWIMWEAR = "Swimwear & Beachwear"
+    LOUNGEWEAR = "Loungewear"
     ACCESSORIES = "Accessories"
 
 
@@ -96,10 +73,7 @@ CATEGORY_MAPPING = {
     WomenClothingMainCategory.ONE_PIECE: OnePieceCategory,
     WomenClothingMainCategory.FOOTWEAR: FootwearCategory,
     WomenClothingMainCategory.OUTERWEAR: OuterwearCategory,
-    WomenClothingMainCategory.INTIMATES_LOUNGE: IntimateLoungewearCategory,
-    WomenClothingMainCategory.ACTIVEWEAR: ActivewearCategory,
-    WomenClothingMainCategory.ETHNIC: EthnicWearCategory,
-    WomenClothingMainCategory.SWIMWEAR: SwimwearCategory,
+    WomenClothingMainCategory.LOUNGEWEAR: LoungewearCategory,
     WomenClothingMainCategory.ACCESSORIES: AccessoryCategory,
 }
 
