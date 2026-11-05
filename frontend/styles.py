@@ -372,6 +372,30 @@ def inject_css() -> None:
             overflow: hidden;
             text-overflow: ellipsis;
         }}
+
+        /* ---- Edit Collection item grid ---- */
+        [class*="st-key-cm-card-item-"] {{
+            padding: 0.75rem;
+        }}
+        [class*="st-key-cm-card-item-"] [data-testid="stImage"] img {{
+            border-radius: var(--cm-radius-sm);
+            aspect-ratio: 3 / 4;
+            object-fit: cover;
+        }}
+        .cm-item-label {{
+            text-align: center;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--cm-text);
+            margin: 0.5rem 0 0.6rem 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }}
+        [class*="st-key-cm-card-item-"] .stButton > button {{
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+        }}
         </style>
         """,
         unsafe_allow_html=True,

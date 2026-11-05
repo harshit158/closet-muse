@@ -64,6 +64,25 @@ class ClothingBase(SQLModel):
     image_path: Optional[str] = None
 
 
+class ClothingUpdate(SQLModel):
+    """Partial update for a wardrobe item.
+
+    Every field is optional so a PATCH only touches what the client sends
+    (``model_dump(exclude_unset=True)``). ``image_path`` is intentionally
+    absent: replacing an item's image is not supported here.
+    """
+
+    main_category: Optional[enums.WomenClothingMainCategory] = None
+    sub_category: Optional[str] = None
+    color: Optional[str] = None
+    material: Optional[enums.Material] = None
+    pattern: Optional[enums.Pattern] = None
+    brand: Optional[str] = None
+    size: Optional[str] = None
+    season: Optional[enums.Season] = None
+    description: Optional[str] = None
+
+
 class ClothingWithImage(BaseModel):
     clothing: ClothingBase
     image_data: bytes | None = None

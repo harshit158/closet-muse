@@ -1,6 +1,7 @@
 import streamlit as st
 from frontend import api_utils, styles
-from closet_muse.domain import enums, schemas
+from frontend.views import clothing_form
+from closet_muse.domain import enums
 
 
 # Garment types offered in the onboarding dropdown = the main clothing categories.
@@ -176,91 +177,19 @@ class OnboardWardrobe:
             "garment_type", list(enums.WomenClothingMainCategory)[0]
         )
 
-        # SUB CATEGORY
-        sub_categories = enums.CATEGORY_MAPPING.get(main_category, [])
-        sub_category = st.selectbox(
-            "Sub-category",
-            index=None,
-            options=list(sub_categories),
-            format_func=lambda x: x.value
+        clothing_item = clothing_form.render_clothing_fields(
+            attrs, main_category=main_category
         )
-
-        # COLOR
-        cols = st.columns([20, 80])
-        with cols[0]:
-            value = attrs.color if attrs is not None else None
-            color = st.text_input("Color (optional)", value=value)
-
-        # MATERIAL
-        index = (
-            list(enums.Material).index(attrs.material)
-            if (attrs is not None and attrs.material)
-            else None
-        )
-        with cols[1]:
-            material = st.selectbox(
-                "Material (optional)",
-                index=index,
-                options=list(enums.Material),
-                format_func=lambda x: x.value
-            )
-
-        # PATTERN
-        index = (
-            list(enums.Pattern).index(attrs.pattern)
-            if (attrs is not None and attrs.pattern)
-            else None
-        )
-        pattern = st.selectbox(
-            "Pattern (optional)",
-            index=index,
-            options=list(enums.Pattern),
-            format_func=lambda x: x.value
-        )
-
-        # BRAND
-        brand = st.text_input("Brand (optional)")
-
-        # SIZE
-        size = st.text_input("Size (optional)")
-
-        # SEASON
-        index = (
-            list(enums.Season).index(attrs.season)
-            if (attrs is not None and attrs.season)
-            else None
-        )
-        season = st.selectbox(
-            "Season (optional)",
-            index=index,
-            options=list(enums.Season),
-            format_func=lambda x: x.value if x else ""
-        )
-
-        # DESCRIPTION
-        value = attrs.description if attrs is not None else None
-        description = st.text_area("Description (optional)", value=value)
 
         # Submit button
         if st.button("Add Clothing Item", width="stretch"):
-            clothing_item = schemas.ClothingBase(
-                main_category=main_category,
-                sub_category=sub_category,
-                color=color if color else None,
-                material=material if material else None,
-                pattern=pattern if pattern else None,
-                brand=brand if brand else None,
-                size=size if size else None,
-                season=season if season else None,
-                description=description if description else None
-            )
-
             api_utils.add_clothing_item(
                 user_id=self.user_id,
                 clothing=clothing_item,
                 image=st.session_state.clothing_image,
             )
-            st.success(f"Added {sub_category.value} to your wardrobe!")
+            label = clothing_item.sub_category or clothing_item.main_category.value
+            st.success(f"Added {label} to your wardrobe!")
 
     def render(self):
         cols = st.columns([60, 40], border=False)
