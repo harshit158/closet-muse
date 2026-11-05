@@ -184,6 +184,9 @@ Create a clean studio mannequin shown from the head down to the upper hips, matc
 * No realistic human skin, no detailed surface texture, no facial detail.
 * Neutral, simplified head shape.
 * No hair, jewelry, accessories, or styling.
+* Upper body shows only the mannequin's own smooth neutral matte surface, the same finish as the head, neck, and arms.
+* To keep the form looking complete, the lower body wears a plain, simple neutral legging (light grey, beige, or off-white), smooth and unpatterned with no logos, prints, or detail.
+* Do not copy, transfer, or reproduce any clothing seen in the uploaded reference; the outfit in the uploaded picture is not part of this output.
 
 2. FORM AND PROPORTIONS
 * Keep the same overall shape and dimensions as the uploaded front-view mannequin.
@@ -192,7 +195,10 @@ Create a clean studio mannequin shown from the head down to the upper hips, matc
 * Do not reshape, exaggerate, or restyle the form.
 
 3. VIEW AND FRAMING
-* Show the mannequin from the top of the head down to the upper hips.
+* Show the mannequin from the top of the head down to the upper hips only; this is much shorter than the uploaded full-length reference.
+* The bottom edge of the frame is at the upper hips. Do not extend the frame downward and do not zoom out: nothing below the upper hips may appear (no lower torso, legs, knees, lower legs, or feet).
+* Only the top edge of the plain neutral base bottom below the waist falls inside the frame.
+* The plain neutral legging below the waist is visible only from the waist down to the crop line at the upper hips; nothing of the legging below the upper hips may be shown.
 * Straight-on front view.
 * Centered with plain, empty space around the form.
 
@@ -213,6 +219,7 @@ Create a clean studio mannequin shown from the head down to the upper hips, matc
 
 IMPORTANT:
 Keep the same material, color, and style as the uploaded front-view mannequin. The subject is an artificial display mannequin prop.
+Show only the mannequin's own neutral display surface and the plain neutral legging, and do not reproduce any clothing from the uploaded reference. The frame ends at the upper hips and must not be extended downward.
 """
 
 PROMPT_BOTTOM = """

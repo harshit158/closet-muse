@@ -140,7 +140,7 @@ MANNEQUIN_FILE_BY_FORM = {
 # When the focus garment is a top on a CROPPED (upper-body) mannequin, the mannequin also
 # wears a plain, neutral bottom so it does not look unfinished - but ONLY within the
 # existing crop. The frame must NOT be extended downward to reveal more of the bottom.
-COMPLEMENTARY_BOTTOM_FOR_TOP = """* The mannequin must not be left bare below the waist: dress it in a plain, neutral-colored bottom (light grey, beige, or off-white trousers).
+COMPLEMENTARY_BOTTOM_FOR_TOP = """* The mannequin must not be left bare below the waist: dress it in a plain, neutral-colored simple legging (light grey, beige, or off-white), so the form looks complete.
 * Show the bottom ONLY within the existing crop. The frame must end exactly where the uploaded mannequin image ends - do NOT extend the crop downward to reveal more of the bottom, legs, thighs, knees, or feet.
 * If the uploaded mannequin image is cropped at the upper hips, the output must also be cropped at the upper hips: the bottom is only visible down to that crop line, and nothing below it may be shown.
 * Keep the bottom simple and unpatterned, with no logos, prints, or embellishments.
