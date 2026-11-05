@@ -79,7 +79,26 @@ class OnboardWardrobe:
             st.session_state.garment_type
         )
 
+    def _apply_pending_garment_type(self) -> None:
+        """Adopt a category extracted during preview before the widget is built.
+
+        Streamlit forbids writing a keyed widget's session value after the widget
+        is instantiated, so the extracted category is stashed under a separate
+        (non-widget) key and applied here, ahead of the ``garment_type`` selectbox.
+        The mannequin form is snapped to the new category's default too, since a
+        programmatic write does not fire the selectbox's ``on_change`` callback.
+        """
+        pending = st.session_state.pop("_pending_garment_type", None)
+        if pending is None:
+            return
+        st.session_state.garment_type = pending
+        st.session_state.mannequin_form = self._default_form_for(pending)
+
     def display_image_generator(self):
+        # Apply any category extracted by a previous preview run BEFORE the
+        # garment_type widget is instantiated (writing it afterwards is illegal).
+        self._apply_pending_garment_type()
+
         uploads = st.file_uploader(
             "Upload one or more photos of your clothing item",
             type=["png", "jpg", "jpeg"],
@@ -163,8 +182,11 @@ class OnboardWardrobe:
 
                 # Let the extracted category drive the Garment type dropdown so the
                 # item lands in the same main category it was polished/detected as.
+                # Stash it under a non-widget key; it is applied on the next run
+                # before the garment_type widget is instantiated (writing the
+                # widget key directly here is illegal once the widget exists).
                 if attrs is not None:
-                    st.session_state.garment_type = attrs.main_category
+                    st.session_state._pending_garment_type = attrs.main_category
                 st.rerun()
 
     @st.fragment

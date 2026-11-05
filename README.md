@@ -50,9 +50,14 @@ make mannequins  # regenerate the try-on mannequins in assets/avatar/
 make model       # generate a fashion-model subject from reference photo(s)
 ```
 
-`scripts/generate_model.py` builds one photorealistic model image from one or
+`scripts/generate_model.py` builds two photorealistic model images from one or
 more reference photos of the same person (pass several with
-`--reference-image photo1.jpg photo2.jpg face.jpg`).
+`--reference-image photo1.jpg photo2.jpg face.jpg`): a straight-on front view
+(`assets/avatar/model_generated.png`) and a three-quarter view
+(`assets/avatar/model_generated_tilted.png`). The tilted view is derived from the
+generated front image (not the raw references, which may themselves be turned
+shots). Tune it with `--tilt-direction {left,right}` and `--tilt-degrees N`, or
+regenerate a single view with `--views {front,tilted}`.
 
 ## Local data
 
