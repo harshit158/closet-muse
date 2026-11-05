@@ -11,7 +11,7 @@ import requests
 from PIL import Image
 
 from closet_muse.domain.enums import WomenClothingMainCategory
-from closet_muse.domain.schemas import ClothingBase
+from closet_muse.domain.schemas import ClothingBase, ClothingUpdate
 from closet_muse.settings import settings
 
 TIMEOUT = 300
@@ -44,6 +44,14 @@ def _post(path: str, **kwargs) -> requests.Response:
 
 def _get(path: str, **kwargs) -> requests.Response:
     return requests.get(f"{settings.backend_url}{path}", timeout=TIMEOUT, **kwargs)
+
+
+def _patch(path: str, **kwargs) -> requests.Response:
+    return requests.patch(f"{settings.backend_url}{path}", timeout=TIMEOUT, **kwargs)
+
+
+def _delete(path: str, **kwargs) -> requests.Response:
+    return requests.delete(f"{settings.backend_url}{path}", timeout=TIMEOUT, **kwargs)
 
 
 def polish_clothing_image(
@@ -85,6 +93,21 @@ def add_clothing_item(user_id: int, clothing: ClothingBase, image: FileLike) -> 
     payload["image_path"] = filename
 
     response = _post(f"/clothing/{user_id}", json=payload)
+    response.raise_for_status()
+    return response.json()
+
+
+def update_clothing_item(clothing_id: str, clothing: ClothingUpdate) -> dict:
+    """Update the provided fields of a wardrobe item (partial update)."""
+    payload = clothing.model_dump(mode="json", exclude_unset=True)
+    response = _patch(f"/clothing/item/{clothing_id}", json=payload)
+    response.raise_for_status()
+    return response.json()
+
+
+def delete_clothing_item(clothing_id: str) -> dict:
+    """Delete a wardrobe item and its stored image."""
+    response = _delete(f"/clothing/item/{clothing_id}")
     response.raise_for_status()
     return response.json()
 

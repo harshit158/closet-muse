@@ -1,4 +1,4 @@
-"""Clothing routes: list, count, and create wardrobe items."""
+"""Clothing routes: list, count, create, update, and delete wardrobe items."""
 
 import uuid
 
@@ -8,7 +8,9 @@ from sqlmodel import func, select
 from closet_muse.api.deps import SessionDep
 from closet_muse.db import models
 from closet_muse.domain.enums import WomenClothingMainCategory
-from closet_muse.domain.schemas import ClothingBase
+from closet_muse.domain.schemas import ClothingBase, ClothingUpdate
+from closet_muse.services import storage
+from closet_muse.settings import settings
 
 router = APIRouter(prefix="/clothing", tags=["clothing"])
 
@@ -55,3 +57,49 @@ def get_clothing_item(clothing_id: uuid.UUID, session: SessionDep) -> models.Clo
     if item is None:
         raise HTTPException(status_code=404, detail="Clothing item not found.")
     return item
+
+
+@router.patch("/item/{clothing_id}")
+def update_clothing_item(
+    clothing_id: uuid.UUID, clothing: ClothingUpdate, session: SessionDep
+) -> models.Clothing:
+    """Update the provided fields of a wardrobe item (partial update)."""
+    item = session.get(models.Clothing, clothing_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Clothing item not found.")
+
+    for field, value in clothing.model_dump(exclude_unset=True).items():
+        setattr(item, field, value)
+
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+@router.delete("/item/{clothing_id}")
+def delete_clothing_item(
+    clothing_id: uuid.UUID, session: SessionDep
+) -> dict[str, str]:
+    """Delete a wardrobe item, its stored image, and any outfit links."""
+    item = session.get(models.Clothing, clothing_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Clothing item not found.")
+
+    # SQLite foreign keys are not enforced, so remove outfit links explicitly
+    # rather than leaving orphaned rows behind.
+    links = session.exec(
+        select(models.OutfitClothingLink).where(
+            models.OutfitClothingLink.clothing_item_id == clothing_id
+        )
+    ).all()
+    for link in links:
+        session.delete(link)
+
+    # Best-effort image cleanup; a missing file is not an error.
+    if item.image_path:
+        storage.delete_image(settings.storage_bucket_clothing, item.image_path)
+
+    session.delete(item)
+    session.commit()
+    return {"status": "deleted", "id": str(clothing_id)}

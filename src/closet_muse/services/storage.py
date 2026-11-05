@@ -34,3 +34,11 @@ def image_path(bucket: str, filename: str) -> Path:
 def read_image(bucket: str, filename: str) -> bytes:
     return image_path(bucket, filename).read_bytes()
 
+
+def delete_image(bucket: str, filename: str) -> None:
+    """Delete a stored image; a missing file (or invalid name) is not an error."""
+    try:
+        image_path(bucket, filename).unlink()
+    except (ValueError, FileNotFoundError):
+        pass
+

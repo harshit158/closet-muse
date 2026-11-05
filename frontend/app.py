@@ -33,8 +33,9 @@ def display_header():
 def display_navigation():
     pages = {
         "Wardrobe": [
-            st.Page("views/generate_outfit.py", title="View Collection"),
+            st.Page("views/generate_outfit.py", title="Generate Outfit"),
             st.Page("views/onboard_wardrobe.py", title="Add to Collection"),
+            st.Page("views/edit_collection.py", title="Edit Collection"),
         ],
         "Coming Soon": [
             st.Page("views/clo_ai.py", title="Chat with Clo AI"),
