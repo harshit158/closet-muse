@@ -27,8 +27,16 @@ class Settings(BaseSettings):
     storage_bucket_avatar: str = "avatar"       # stores user avatars
     storage_bucket_generated: str = "generated"  # stores generated outfit images
 
-    # virtual try-on model image
+    # virtual try-on model image (subject used by the backend try-on)
     model_image_path: str = "assets/avatar/model_generated.png"
+
+    # model views shown in the "Your Look" carousel, in display order
+    # (name -> path): left, center, right
+    model_image_views: dict[str, str] = {
+        "left": "assets/avatar/model_generated_tilted_left.png",
+        "center": "assets/avatar/model_generated.png",
+        "right": "assets/avatar/model_generated_tilted_right.png",
+    }
 
     # personal settings
     personal_note: str | None = None
