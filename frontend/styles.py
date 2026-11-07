@@ -341,6 +341,13 @@ def inject_css() -> None:
             height: auto !important;
         }}
 
+        /* ---- "Your Look" carousel nav ---- */
+        [class*="st-key-cm-card-look-panel"] [class*="st-key-look_prev"] button,
+        [class*="st-key-cm-card-look-panel"] [class*="st-key-look_next"] button {{
+            padding: 0.25rem 0.6rem;
+            line-height: 1;
+        }}
+
         /* ---- Selected-items thumbnail tray ---- */
         .cm-tray {{
             display: flex;

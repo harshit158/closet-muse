@@ -1,6 +1,7 @@
 import streamlit as st
 from io import BytesIO
 from dataclasses import dataclass
+from typing import ClassVar
 from streamlit_image_select import image_select
 from frontend import api_utils, styles
 from closet_muse.domain.enums import WomenClothingMainCategory
@@ -8,10 +9,35 @@ from closet_muse.settings import settings
 from PIL import Image
 
 
+@st.cache_data(show_spinner=False)
+def _fetch_image_cached(bucket: str, path: str) -> bytes:
+    """Fetch an image once and reuse the bytes across reruns/sessions."""
+    return api_utils.fetch_image(bucket, path)
+
+
+@st.cache_data(show_spinner=False)
+def _model_view_bytes(path: str, max_width: int = 900) -> bytes:
+    """Load a model view once as a small JPEG.
+
+    The source PNGs are ~2.5 MB each and Streamlit re-encodes them on every
+    rerun, which made the carousel arrows feel sluggish. Downscaling once and
+    handing Streamlit ready-made JPEG bytes keeps each arrow click snappy.
+    """
+    with Image.open(path) as img:
+        img = img.convert("RGB")
+        if img.width > max_width:
+            height = round(img.height * max_width / img.width)
+            img = img.resize((max_width, height), Image.Resampling.LANCZOS)
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=88, optimize=True)
+        return buffer.getvalue()
+
+
 @dataclass
 class OutfitGenerator:
     user_id: int = 1
-    MODEL_PATH: str = settings.model_image_path
+    # view name -> image path, in display order: left, center, right
+    MODEL_VIEWS: ClassVar[dict[str, str]] = settings.model_image_views
     CATEGORY_DISPLAY_RANK = {category: rank for rank, category in enumerate(WomenClothingMainCategory)}
 
     def __init__(self, user_id: int = 1):
@@ -24,6 +50,14 @@ class OutfitGenerator:
         # store selected clothing items (category value -> clothing dict)
         if "clothing_selections" not in st.session_state:
             st.session_state.clothing_selections = {}
+
+        # index of the model photo shown in the "Your Look" carousel
+        if "look_index" not in st.session_state:
+            st.session_state.look_index = 0
+
+        # generated outfit image (PIL); when set it replaces the carousel
+        if "generated_outfit" not in st.session_state:
+            st.session_state.generated_outfit = None
 
     def _clothing_count(self, category: WomenClothingMainCategory) -> int:
         """Get the number of clothing items for a given category."""
@@ -61,7 +95,7 @@ class OutfitGenerator:
         st.session_state.clothing_selections.pop(category.value, None)
 
     def _download_image(self, image_path: str) -> BytesIO:
-        data = api_utils.fetch_image(settings.storage_bucket_clothing, image_path)
+        data = _fetch_image_cached(settings.storage_bucket_clothing, image_path)
         return BytesIO(data)
 
     def fetch_clothings(self, category: WomenClothingMainCategory) -> list[dict]:
@@ -126,16 +160,54 @@ class OutfitGenerator:
             return
         styles.thumb_tray(items)
 
-    def display_preview(self, placeholder) -> None:
-        """Display generation controls wired to the preview placeholder."""
+    @st.fragment
+    def display_look_panel(self) -> None:
+        """Show the generated look, or the model-photo carousel when idle.
+
+        Rendered as a fragment so the carousel arrows only rerun this panel
+        instead of the whole page (which re-downloads the wardrobe gallery).
+        """
+        generated = st.session_state.get("generated_outfit")
+        if generated is not None:
+            st.image(generated, width="stretch")
+            if st.button("Back to photos", width="stretch"):
+                st.session_state.generated_outfit = None
+                st.rerun(scope="fragment")
+            return
+
+        views = list(self.MODEL_VIEWS.items())
+        index = min(max(st.session_state.look_index, 0), len(views) - 1)
+        _, path = views[index]
+        st.image(_model_view_bytes(path), width="stretch")
+
+        with st.container(horizontal=True):
+            if st.button(
+                "◀",
+                key="look_prev",
+                disabled=index == 0,
+                width="stretch",
+            ):
+                st.session_state.look_index = index - 1
+                st.rerun(scope="fragment")
+            if st.button(
+                "▶",
+                key="look_next",
+                disabled=index == len(views) - 1,
+                width="stretch",
+            ):
+                st.session_state.look_index = index + 1
+                st.rerun(scope="fragment")
+
+    def display_preview(self) -> None:
+        """Display generation controls."""
         with st.container(horizontal=True):
             if st.button("Generate", width="stretch", type="primary"):
-                self.generate_outfit(placeholder)
+                self.generate_outfit()
 
             if st.button("Surprise Me", width="stretch"):
-                self.generate_surprise_outfit(placeholder)
+                self.generate_surprise_outfit()
 
-    def generate_outfit(self, placeholder) -> None:
+    def generate_outfit(self) -> None:
         """Generate outfit based on selected items."""
         clothing_ids = [
             str(c["id"]) for c in st.session_state.clothing_selections.values()
@@ -146,13 +218,13 @@ class OutfitGenerator:
 
         with st.spinner("Generating your outfit..."):
             image = api_utils.generate_outfit(self.user_id, clothing_ids)
-            if image:
-                with placeholder.container():
-                    st.image(image, width="stretch")
-            else:
-                st.error("Failed to generate outfit.")
+        if image:
+            st.session_state.generated_outfit = image
+            st.rerun()
+        else:
+            st.error("Failed to generate outfit.")
 
-    def generate_surprise_outfit(self, placeholder) -> None:
+    def generate_surprise_outfit(self) -> None:
         """Generate surprise outfit (placeholder for future implementation)."""
         pass
 
@@ -180,11 +252,8 @@ class OutfitGenerator:
         with cols[2]:
             with styles.sticky_panel("cm-card-look-panel"):
                 styles.eyebrow("Your Look")
-                model_placeholder = st.empty()
-                with model_placeholder.container():
-                    st.image(self.MODEL_PATH, width="stretch")
-
-                self.display_preview(model_placeholder)
+                self.display_look_panel()
+                self.display_preview()
 
 
 def run(user_id: int = 1):
