@@ -34,6 +34,27 @@ cp .env.example .env  # then fill in your keys
 
 See `.env.example`. Populate `.env` with your values; it is git-ignored.
 
+### Image models
+
+Every OpenRouter call site has its own model setting, so different models can be
+used for different jobs. Each has its own default; set only the ones you want to
+change.
+
+| variable                     | used by                              | default                         |
+| ---------------------------- | ------------------------------------ | ------------------------------- |
+| `IMAGE_MODEL_POLISH`         | onboarding (dress a mannequin)       | `meta/muse-image`               |
+| `IMAGE_MODEL_TRYON`          | outfit generator (virtual try-on)    | `meta/muse-image`               |
+| `IMAGE_MODEL_MANNEQUIN`      | `scripts/generate_mannequins.py`     | `openai/gpt-image-2.5-sunburst` |
+| `IMAGE_MODEL_FASHION_MODEL`  | `scripts/generate_model.py`          | `meta/muse-image`               |
+
+`OPENROUTER_IMAGE_URL`, `IMAGE_TIMEOUT`, `IMAGE_ASPECT_RATIO`, and `IMAGE_SEED`
+apply to all of them. The scripts also accept `--model` to override the model for
+a single run.
+
+Attribute extraction uses a local Ollama vision model: `ATTRIBUTE_MODEL`
+(default `qwen3-vl:4b`) and `OLLAMA_HOST` (default: the Ollama client's own
+default).
+
 ## Run
 
 ```bash

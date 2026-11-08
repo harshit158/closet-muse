@@ -13,10 +13,20 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
 
     # image generation (OpenRouter)
-    image_model: str = "meta/muse-image"
+    openrouter_image_url: str = "https://openrouter.ai/api/v1/images"
+    image_timeout: int = 180
+    # Per-purpose image models, each with its own default.
+    image_model_polish: str = "meta/muse-image"  # onboarding: dress a mannequin
+    image_model_tryon: str = "meta/muse-image"  # outfit generator: dress the model
+    image_model_mannequin: str = "openai/gpt-image-2.5-sunburst"  # generate_mannequins.py
+    image_model_fashion_model: str = "meta/muse-image"  # generate_model.py
     image_aspect_ratio: str = "2:3"
     image_seed: int = 42
     mannequin_dir: str = "assets/avatar"
+
+    # clothing-attribute extraction (local Ollama vision model)
+    attribute_model: str = "qwen3-vl:4b"
+    ollama_host: str | None = None  # None = the ollama client's default host
 
     # local database (SQLite)
     sqlite_path: str = "var/closet_muse.db"

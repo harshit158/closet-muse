@@ -44,8 +44,9 @@ Turn the other way, and further, for the tilted views::
     uv run python scripts/generate_mannequins.py --views tilted --overwrite \\
         --tilt-direction left --tilt-degrees 35
 
-The OpenRouter API key is read from the ``OPENROUTER_API_KEY`` environment
-variable (``.env`` is loaded automatically if present).
+The OpenRouter API key, endpoint, model, aspect ratio, and timeout all come from
+``closet_muse.settings`` (``.env`` is loaded automatically). The model is
+``IMAGE_MODEL_MANNEQUIN``; ``--model`` overrides it for a single run.
 """
 
 from __future__ import annotations
@@ -53,27 +54,16 @@ from __future__ import annotations
 import argparse
 import base64
 import mimetypes
-import os
 import sys
-from io import BytesIO
 from pathlib import Path
 
 import requests
 
-try:  # optional convenience: load a local .env if python-dotenv is installed
-    from dotenv import load_dotenv
+from closet_muse.settings import settings
 
-    load_dotenv()
-except ModuleNotFoundError:  # pragma: no cover - dotenv is a project dependency
-    pass
-
-API_URL = "https://openrouter.ai/api/v1/images"
-DEFAULT_MODEL = "openai/gpt-image-2.5-sunburst" # "meta/muse-image"
 DEFAULT_REFERENCE_IMAGE = "assets/avatar/model_generated.png"
 DEFAULT_FULL_MANNEQUIN = "assets/avatar/mannequin_full.png"
 DEFAULT_OUTPUT_DIR = "assets/avatar"
-DEFAULT_ASPECT_RATIO = "2:3"
-DEFAULT_TIMEOUT = 180
 # Tilted view: which side of the IMAGE the forward shoulder is on, and how far the
 # body is rotated from the front (degrees). The image model reliably follows
 # image-relative wording ("the shoulder on the left side of the image") but ignores
@@ -523,7 +513,9 @@ def _generate(
         "Content-Type": "application/json",
     }
 
-    response = requests.post(API_URL, json=payload, headers=headers, timeout=timeout)
+    response = requests.post(
+        settings.openrouter_image_url, json=payload, headers=headers, timeout=timeout
+    )
     response.raise_for_status()
     body = response.json()
 
@@ -577,7 +569,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=Path(DEFAULT_OUTPUT_DIR),
         help="Directory where the generated mannequins are written.",
     )
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Image model to use.")
+    parser.add_argument(
+        "--model",
+        default=settings.image_model_mannequin,
+        help="Image model to use (defaults to IMAGE_MODEL_MANNEQUIN).",
+    )
     parser.add_argument(
         "--tilt-direction",
         choices=["left", "right"],
@@ -593,7 +589,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_TILT_DEGREES,
         help="How far the body is turned from the front in the tilted view.",
     )
-    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="Request timeout (seconds).")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=settings.image_timeout,
+        help="Request timeout (seconds).",
+    )
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -611,7 +612,7 @@ def main(argv: list[str] | None = None) -> int:
     views = list(VIEWS) if "all" in args.views else args.views
     views = [view for view in VIEWS if view in views]
 
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = settings.openrouter_api_key
     if not api_key:
         print(
             "error: no API key. Set the OPENROUTER_API_KEY environment variable.",
@@ -677,7 +678,7 @@ def main(argv: list[str] | None = None) -> int:
                     model=args.model,
                     prompt=prompt,
                     reference_path=reference,
-                    aspect_ratio=DEFAULT_ASPECT_RATIO,
+                    aspect_ratio=settings.image_aspect_ratio,
                     timeout=args.timeout,
                 )
             except Exception as exc:  # noqa: BLE001 - surface any failure to the user

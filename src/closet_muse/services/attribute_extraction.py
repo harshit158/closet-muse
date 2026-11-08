@@ -3,11 +3,10 @@
 import base64
 from collections.abc import Sequence
 
-from ollama import chat
+import ollama
 
 from closet_muse.domain.schemas import ClothingBase
-
-MODEL = "qwen3-vl:4b"
+from closet_muse.settings import settings
 
 _PROMPT_SINGLE = (
     "Analyze the clothing image and describe the dress "
@@ -38,8 +37,11 @@ def extract_clothing_attributes(images: Sequence[bytes]) -> ClothingBase:
         else _PROMPT_MULTIPLE.format(count=len(images))
     )
 
-    response = chat(
-        model=MODEL,
+    # ``ollama.chat`` talks to the default host; an explicit client is only needed
+    # when a custom host is configured.
+    client = ollama.Client(host=settings.ollama_host) if settings.ollama_host else ollama
+    response = client.chat(
+        model=settings.attribute_model,
         messages=[
             {
                 "role": "user",
