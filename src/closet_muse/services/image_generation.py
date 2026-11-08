@@ -9,6 +9,7 @@ Two flows use the same API:
 
 import base64
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 
@@ -77,9 +78,15 @@ The output must keep the exact same mannequin form, view, and crop as the upload
 """
 
 # Framing text per mannequin form, so the output crop matches the reference image.
+# The crop is identical for the front and tilted views of a form, so it is keyed
+# by form only.
 FRAMING_BY_FORM = {
-    "full_front": "Show the complete mannequin from head to feet, exactly as framed in the uploaded mannequin image.",
-    "full_side": "Show the complete mannequin from head to feet, exactly as framed in the uploaded mannequin image.",
+    "full": "Show the complete mannequin from head to feet, exactly as framed in the uploaded mannequin image.",
+    "face": (
+        "Show only the head, neck, and shoulders, exactly as cropped in the uploaded "
+        "mannequin image. Do not extend the crop downward, and do not add a chest, torso, "
+        "arms, or legs."
+    ),
     "top": (
         "Show only the upper body, from the head down to the upper hips, exactly as cropped in the "
         "uploaded mannequin image. Do not extend the crop, and do not add legs or feet."
@@ -96,26 +103,45 @@ FRAMING_BY_FORM = {
     ),
 }
 
-# Camera view per mannequin form, so the output matches the reference image's orientation.
-VIEW_BY_FORM = {
-    "full_front": "Straight-on front view, matching the uploaded mannequin image.",
-    "full_side": (
-        "Strict side profile view (90 degrees from the front), matching the uploaded mannequin "
-        "image. The body faces to one side and the face direction is perpendicular to the camera. "
-        "Do not render a front or three-quarter view."
+# Camera view per (form, view), so the output matches the reference image's orientation.
+VIEW_BY_FORM_AND_VIEW = {
+    ("full", "front"): "Straight-on front view, matching the uploaded mannequin image.",
+    ("full", "tilted"): (
+        "Three-quarter view, matching the uploaded mannequin image: the body is turned about "
+        "30 degrees away from the front. Do not render a straight-on front view or a full "
+        "side profile."
     ),
-    "top": "Straight-on front view, matching the uploaded mannequin image.",
-    "bottom": "Straight-on front view, matching the uploaded mannequin image.",
-    "feet": "Straight-on front view, matching the uploaded mannequin image.",
+    ("face", "front"): "Straight-on front view, matching the uploaded mannequin image.",
+    ("face", "tilted"): (
+        "Three-quarter view, matching the uploaded mannequin image: the head and shoulders are "
+        "turned about 30 degrees away from the front, with the face still visible. Do not "
+        "render a straight-on front view or a full side profile."
+    ),
+    ("top", "front"): "Straight-on front view, matching the uploaded mannequin image.",
+    ("top", "tilted"): (
+        "Three-quarter view, matching the uploaded mannequin image: the upper body is turned "
+        "about 30 degrees away from the front. Do not render a straight-on front view or a "
+        "full side profile."
+    ),
+    ("bottom", "front"): "Straight-on front view, matching the uploaded mannequin image.",
+    ("bottom", "tilted"): (
+        "Three-quarter view, matching the uploaded mannequin image: the lower body is turned "
+        "about 30 degrees away from the front. Do not render a straight-on front view or a "
+        "full side profile."
+    ),
+    ("feet", "front"): "Straight-on front view, matching the uploaded mannequin image.",
+    ("feet", "tilted"): (
+        "Three-quarter view, matching the uploaded mannequin image: the lower legs and feet are "
+        "turned about 30 degrees away from the front. Do not render a straight-on front view "
+        "or a full side profile."
+    ),
 }
 
-# How the reference mannequin image is described in the prompt, per form.
-VIEW_REFERENCE_BY_FORM = {
-    "full_front": "front-view mannequin image",
-    "full_side": "side-view mannequin image",
-    "top": "front-view mannequin image",
-    "bottom": "front-view mannequin image",
-    "feet": "front-view mannequin image",
+# How the reference mannequin image is described in the prompt, per (form, view).
+VIEW_REFERENCE_BY_FORM_AND_VIEW = {
+    (form, "front"): "front-view mannequin image" for form in FRAMING_BY_FORM
+} | {
+    (form, "tilted"): "three-quarter-view mannequin image" for form in FRAMING_BY_FORM
 }
 
 # Added to the prompt when the person's garment is supplied as several photos
@@ -128,14 +154,17 @@ MULTI_PHOTO_GUIDANCE = (
     "fabric, pattern, and construction details."
 )
 
-# Reference mannequin image filename per form (under ``settings.mannequin_dir``).
-MANNEQUIN_FILE_BY_FORM = {
-    "full_front": "mannequin_front.png",
-    "full_side": "mannequin_side.png",
-    "top": "mannequin_top.png",
-    "bottom": "mannequin_bottom.png",
-    "feet": "mannequin_feet.png",
+# Reference mannequin image filename per (form, view) (under ``settings.mannequin_dir``).
+MANNEQUIN_FILE_BY_FORM_AND_VIEW = {
+    (form, view): f"mannequin_{form}{'' if view == 'front' else '_tilted'}.png"
+    for form in FRAMING_BY_FORM
+    for view in ("front", "tilted")
 }
+
+# The mannequin forms offered for onboarding, in display order.
+MANNEQUIN_FORMS = tuple(FRAMING_BY_FORM)
+# The two perspectives generated for every form.
+MANNEQUIN_VIEWS = ("front", "tilted")
 
 # When the focus garment is a top on a CROPPED (upper-body) mannequin, the mannequin also
 # wears a plain, neutral bottom so it does not look unfinished - but ONLY within the
@@ -166,14 +195,34 @@ FOOTWEAR_ON_FORM_NOTE = """The {garment_type} must be worn on the display form's
 The form must stay within the existing crop: the frame must end exactly where the uploaded mannequin image ends, and must not be extended upward to reveal more of the legs or body.
 """
 
+# When the focus item is an accessory on the CROPPED (head, neck and shoulders)
+# mannequin, the accessory must be worn in its natural place so it reads clearly.
+ACCESSORY_ON_FACE_FORM = """* The display form must be shown wearing the {garment_type} in its natural position: a hat or cap on the head, sunglasses on the face, earrings on the ears, a necklace or scarf around the neck, and a shawl over the shoulders.
+* The {garment_type} is the subject and must be fully visible and clearly readable.
+* Reproduce the exact design: color, material, texture, pattern, shape, hardware, stitching, and any logos or prints.
+* Do not substitute, restyle, recolor, or redesign the {garment_type}.
+* Do not add any other item to the form (no clothing, jewelry, or accessories) beyond what the uploaded photograph shows.
+* Do not show the form without the {garment_type} worn.
+"""
+
+ACCESSORY_ON_FACE_FORM_NOTE = """The {garment_type} must be worn on the display form in its natural position and must be the clearly visible subject.
+The form must stay within the existing crop: the frame must end exactly where the uploaded mannequin image ends, and must not be extended downward to reveal the chest, torso, or arms.
+"""
+
 
 def build_dressed_prompt(
-    garment_type: str, mannequin_form: str = "full_front", num_photos: int = 1
+    garment_type: str,
+    mannequin_form: str = "full",
+    num_photos: int = 1,
+    view: str = "front",
 ) -> str:
-    """Build the dressed-mannequin prompt for a garment type and mannequin form.
+    """Build the dressed-mannequin prompt for a garment type, form, and view.
 
-    ``mannequin_form`` must match the reference mannequin image: ``"full_front"``, ``"full_side"``,
-    ``"top"`` (head to upper hips), ``"bottom"`` (waist to feet), or ``"feet"`` (lower legs and feet).
+    ``mannequin_form`` must match the reference mannequin image: ``"full"``,
+    ``"face"`` (head, neck and shoulders), ``"top"`` (head to upper hips),
+    ``"bottom"`` (waist to feet), or ``"feet"`` (lower legs and feet).
+    ``view`` is ``"front"`` or ``"tilted"`` (three-quarter) and must match the
+    reference image's orientation.
     ``num_photos`` is the number of photos of the person's garment supplied as references;
     when more than one is given, the prompt explains that they show the same garment.
     """
@@ -181,17 +230,23 @@ def build_dressed_prompt(
         raise ValueError(
             f"mannequin_form must be one of {sorted(FRAMING_BY_FORM)}, got {mannequin_form!r}"
         )
+    if view not in MANNEQUIN_VIEWS:
+        raise ValueError(
+            f"view must be one of {list(MANNEQUIN_VIEWS)}, got {view!r}"
+        )
 
-    # A neutral bottom only makes sense on a cropped upper-body mannequin, and the
-    # footwear guidance only applies to the cropped lower-legs/feet form.
-    needs_bottom = mannequin_form == "top"
-    needs_footwear = mannequin_form == "feet"
-    if needs_bottom:
+    # A neutral bottom only makes sense on a cropped upper-body mannequin, the
+    # footwear guidance only applies to the cropped lower-legs/feet form, and the
+    # accessory guidance only applies to the cropped head/neck/shoulders form.
+    if mannequin_form == "top":
         extra_guidance = COMPLEMENTARY_BOTTOM_FOR_TOP.format(garment_type=garment_type)
         extra_note = COMPLEMENTARY_BOTTOM_NOTE_FOR_TOP.format(garment_type=garment_type)
-    elif needs_footwear:
+    elif mannequin_form == "feet":
         extra_guidance = FOOTWEAR_ON_FORM.format(garment_type=garment_type)
         extra_note = FOOTWEAR_ON_FORM_NOTE.format(garment_type=garment_type)
+    elif mannequin_form == "face":
+        extra_guidance = ACCESSORY_ON_FACE_FORM.format(garment_type=garment_type)
+        extra_note = ACCESSORY_ON_FACE_FORM_NOTE.format(garment_type=garment_type)
     else:
         extra_guidance = ""
         extra_note = ""
@@ -200,8 +255,8 @@ def build_dressed_prompt(
     )
     return prompt_mannequin_dressed_template.format(
         garment_type=garment_type,
-        view=VIEW_BY_FORM[mannequin_form],
-        view_reference=VIEW_REFERENCE_BY_FORM[mannequin_form],
+        view=VIEW_BY_FORM_AND_VIEW[(mannequin_form, view)],
+        view_reference=VIEW_REFERENCE_BY_FORM_AND_VIEW[(mannequin_form, view)],
         framing=FRAMING_BY_FORM[mannequin_form],
         complementary_bottom=extra_guidance,
         complementary_bottom_note=extra_note,
@@ -237,60 +292,33 @@ def _to_data_url(data: bytes, mime: str | None = None) -> str:
     return f"data:{mime};base64,{base64.b64encode(data).decode()}"
 
 
-def _mannequin_reference_path(mannequin_form: str) -> Path:
-    """Resolve the reference mannequin image path for a mannequin form."""
-    if mannequin_form not in MANNEQUIN_FILE_BY_FORM:
+def _mannequin_reference_path(mannequin_form: str, view: str = "front") -> Path:
+    """Resolve the reference mannequin image path for a form and view."""
+    key = (mannequin_form, view)
+    if key not in MANNEQUIN_FILE_BY_FORM_AND_VIEW:
         raise ValueError(
-            f"mannequin_form must be one of {sorted(MANNEQUIN_FILE_BY_FORM)}, "
-            f"got {mannequin_form!r}"
+            f"mannequin_form/view must be one of "
+            f"{sorted(MANNEQUIN_FILE_BY_FORM_AND_VIEW)}, got {key!r}"
         )
-    return Path(settings.mannequin_dir) / MANNEQUIN_FILE_BY_FORM[mannequin_form]
+    return Path(settings.mannequin_dir) / MANNEQUIN_FILE_BY_FORM_AND_VIEW[key]
 
 
-def polish_clothing_image(
-    images: bytes | Sequence[bytes],
+def _polish_one_view(
+    *,
+    image_list: list[bytes],
+    mime_list: list[str | None],
     garment_type: str,
     mannequin_form: str,
-    mime_types: Sequence[str] | str | None = None,
+    view: str,
 ) -> bytes | None:
-    """Dress a studio mannequin in the garment worn by the person in the photo(s).
-
-    ``images`` accepts a single photo or several photos of the *same* garment
-    (a primary shot plus additional angles); every photo is attached as a
-    reference so the model can read the garment from all angles.
-
-    ``mime_types`` may be a single MIME type or one per image; when omitted the
-    MIME type is detected from each image's bytes.
-
-    Returns the generated PNG bytes, or ``None`` if the API returned no image.
-    """
-    if not settings.openrouter_api_key:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. Configure it in your .env file."
-        )
-
-    # Accept a lone bytes object as well as a sequence, and normalise the MIME types.
-    image_list: list[bytes] = [bytes(images)] if isinstance(images, (bytes, bytearray)) else [bytes(i) for i in images]
-    if not image_list:
-        raise ValueError("At least one image is required to polish a garment.")
-
-    if mime_types is None:
-        mime_list: list[str | None] = [None] * len(image_list)
-    elif isinstance(mime_types, str):
-        mime_list = [mime_types] * len(image_list)
-    else:
-        mime_list = list(mime_types)
-        if len(mime_list) != len(image_list):
-            raise ValueError(
-                "mime_types must have the same length as images "
-                f"({len(mime_list)} != {len(image_list)})"
-            )
-
-    reference_path = _mannequin_reference_path(mannequin_form)
+    """Dress one mannequin view in the garment and return the PNG bytes."""
+    reference_path = _mannequin_reference_path(mannequin_form, view)
     if not reference_path.is_file():
         raise FileNotFoundError(f"Mannequin reference image not found: {reference_path}")
 
-    prompt = build_dressed_prompt(garment_type, mannequin_form, num_photos=len(image_list))
+    prompt = build_dressed_prompt(
+        garment_type, mannequin_form, num_photos=len(image_list), view=view
+    )
 
     payload = {
         "model": settings.image_model,
@@ -334,6 +362,83 @@ def polish_clothing_image(
     return base64.b64decode(data[0]["b64_json"])
 
 
+def polish_clothing_image(
+    images: bytes | Sequence[bytes],
+    garment_type: str,
+    mannequin_form: str,
+    mime_types: Sequence[str] | str | None = None,
+) -> dict[str, bytes]:
+    """Dress a studio mannequin in the garment worn by the person in the photo(s).
+
+    The garment is applied to BOTH perspectives of the chosen form - the
+    straight-on front view and the three-quarter tilted view - so the try-on
+    generator can read the garment from two angles. The two requests run
+    concurrently.
+
+    ``images`` accepts a single photo or several photos of the *same* garment
+    (a primary shot plus additional angles); every photo is attached as a
+    reference so the model can read the garment from all angles.
+
+    ``mime_types`` may be a single MIME type or one per image; when omitted the
+    MIME type is detected from each image's bytes.
+
+    Returns ``{"front": png_bytes, "tilted": png_bytes}``. Raises
+    ``RuntimeError`` if either view came back without an image, so a partially
+    dressed item is never stored.
+    """
+    if not settings.openrouter_api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set. Configure it in your .env file."
+        )
+
+    # Accept a lone bytes object as well as a sequence, and normalise the MIME types.
+    image_list: list[bytes] = [bytes(images)] if isinstance(images, (bytes, bytearray)) else [bytes(i) for i in images]
+    if not image_list:
+        raise ValueError("At least one image is required to polish a garment.")
+
+    if mime_types is None:
+        mime_list: list[str | None] = [None] * len(image_list)
+    elif isinstance(mime_types, str):
+        mime_list = [mime_types] * len(image_list)
+    else:
+        mime_list = list(mime_types)
+        if len(mime_list) != len(image_list):
+            raise ValueError(
+                "mime_types must have the same length as images "
+                f"({len(mime_list)} != {len(image_list)})"
+            )
+
+    # Fail fast on a missing reference before spending an API call.
+    for view in MANNEQUIN_VIEWS:
+        reference_path = _mannequin_reference_path(mannequin_form, view)
+        if not reference_path.is_file():
+            raise FileNotFoundError(
+                f"Mannequin reference image not found: {reference_path}"
+            )
+
+    def _run(view: str) -> bytes | None:
+        return _polish_one_view(
+            image_list=image_list,
+            mime_list=mime_list,
+            garment_type=garment_type,
+            mannequin_form=mannequin_form,
+            view=view,
+        )
+
+    # Both views are independent requests, so run them concurrently.
+    with ThreadPoolExecutor(max_workers=len(MANNEQUIN_VIEWS)) as executor:
+        futures = {view: executor.submit(_run, view) for view in MANNEQUIN_VIEWS}
+        results = {view: future.result() for view, future in futures.items()}
+
+    missing = [view for view, data in results.items() if not data]
+    if missing:
+        raise RuntimeError(
+            f"Image generation returned no image for the {', '.join(missing)} view."
+        )
+
+    return {view: data for view, data in results.items() if data is not None}
+
+
 # ---------------------------------------------------------------------------
 # Virtual try-on (OpenRouter)
 # ---------------------------------------------------------------------------
@@ -354,6 +459,7 @@ Present the person wearing the given clothing items so the outfit is immediately
 * Dress the person in the given items with a natural fit and drape.
 * Match the garment's length: hem position, sleeve length, rise, and inseam.
 * Match how each garment sits on the shoulders, chest, waist, hips, and legs.
+* When an item is shown in more than one image, those images are the SAME garment on the same mannequin from different angles (a straight-on front view and a three-quarter view). Use both together to read its exact shape, volume, and how the fabric hangs, and reproduce that same fit on the person.
 
 3. SUBJECT PRESERVATION
 * Preserve the subject's face, hair, and hand positions exactly; keep skin texture identical.
@@ -372,10 +478,22 @@ Footwear items must be worn on the subject's feet and be clearly visible in the 
 
 
 def _build_tryon_prompt(clothings: dict[str, ClothingWithImage]) -> str:
+    """Describe each clothing item and which reference images show it.
+
+    Image 1 is always the subject photo, so clothing references start at image 2.
+    An item with a tilted image occupies two consecutive reference slots.
+    """
     clothing_details = ""
+    image_number = 2  # image 1 is the person
     for i, (_, clothing) in enumerate(clothings.items(), 1):
+        if clothing.image_data_tilted:
+            images = f"images {image_number} and {image_number + 1}"
+            image_number += 2
+        else:
+            images = f"image {image_number}"
+            image_number += 1
         clothing_details += (
-            f"Clothing {i} (in image {i}): A {clothing.clothing.color} "
+            f"Clothing {i} (in {images}): A {clothing.clothing.color} "
             f"{clothing.clothing.sub_category} ({clothing.clothing.main_category})\n"
         )
     return _TRYON_PROMPT.format(clothing_details=clothing_details)
@@ -394,21 +512,24 @@ def generate_fashion_image(
     if not model_file.is_file():
         raise FileNotFoundError(f"Model image not found: {model_file}")
 
-    # The model photo is the subject; each clothing image is a reference.
+    # The model photo is the subject; each clothing image is a reference. Items
+    # onboarded with a tilted image contribute BOTH perspectives, so the model
+    # can read the garment's fit and drape from two angles.
     input_references = [
         {
             "type": "image_url",
             "image_url": {"url": _to_data_url(model_file.read_bytes())},
         }
     ]
-    input_references.extend(
-        {
-            "type": "image_url",
-            "image_url": {"url": _to_data_url(clothing.image_data)},
-        }
-        for clothing in clothings.values()
-        if clothing.image_data
-    )
+    for clothing in clothings.values():
+        for data in (clothing.image_data, clothing.image_data_tilted):
+            if data:
+                input_references.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": _to_data_url(data)},
+                    }
+                )
 
     payload = {
         "model": settings.image_model,

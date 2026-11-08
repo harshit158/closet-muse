@@ -63,6 +63,12 @@ class ClothingBase(SQLModel):
 
     image_path: Optional[str] = None
 
+    # Second perspective of the same item: the garment dressed on the
+    # three-quarter (tilted) mannequin. The try-on generator uses both images so
+    # the model can read the garment's fit and drape from two angles. Items
+    # onboarded before this existed have no tilted image.
+    image_path_tilted: Optional[str] = None
+
 
 class ClothingUpdate(SQLModel):
     """Partial update for a wardrobe item.
@@ -86,6 +92,9 @@ class ClothingUpdate(SQLModel):
 class ClothingWithImage(BaseModel):
     clothing: ClothingBase
     image_data: bytes | None = None
+    # The same garment on the three-quarter mannequin; ``None`` for items
+    # onboarded before tilted images existed.
+    image_data_tilted: bytes | None = None
 
 
 class OutfitRequest(BaseModel):

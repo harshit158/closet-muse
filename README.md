@@ -43,12 +43,52 @@ make dev       # both, in parallel
 make seed      # create a local user in the SQLite DB
 ```
 
+## Database schema
+
+Tables are created from the SQLModel definitions on backend startup
+(`create_db_and_tables()`), so there is no migration step to run.
+
+`create_all()` is idempotent — it creates missing tables and leaves existing
+ones and their rows alone — but it does **not** add a column to a table that
+already exists. After adding a field to a model, either start from a fresh
+database (`make clean`) or apply a one-off `ALTER TABLE`:
+
+```bash
+sqlite3 var/closet_muse.db "ALTER TABLE clothing ADD COLUMN image_path_tilted VARCHAR;"
+```
+
 ## Assets
 
 ```bash
 make mannequins  # regenerate the try-on mannequins in assets/avatar/
 make model       # generate a fashion-model subject from reference photo(s)
 ```
+
+`scripts/generate_mannequins.py` builds **ten** mannequin images: five display
+forms, each in a straight-on front view and a three-quarter tilted view.
+
+| form     | frame                        | used for                        |
+| -------- | ---------------------------- | ------------------------------- |
+| `face`   | head, neck and shoulders     | hats, sunglasses, scarves       |
+| `top`    | head to upper hips           | tops, shirts, jackets           |
+| `full`   | head to feet                 | dresses, one-piece outfits      |
+| `bottom` | waist to feet                | pants, skirts, shorts           |
+| `feet`   | knees to feet                | shoes                           |
+
+Files are named `mannequin_<form>.png` and `mannequin_<form>_tilted.png`. The
+`full` front view is generated from the person photo; the other four forms are
+derived from it, and every tilted view is derived from its own form's front
+image. Select what to build with `--forms` and `--views`:
+
+```bash
+uv run python scripts/generate_mannequins.py --forms face top --overwrite
+uv run python scripts/generate_mannequins.py --views tilted --overwrite
+uv run python scripts/generate_mannequins.py --views tilted --tilt-direction left --tilt-degrees 35
+```
+
+Onboarding dresses **both** perspectives of the chosen form in one click, and
+the try-on generator uses both images per garment so the model can read the
+fit and drape from two angles.
 
 `scripts/generate_model.py` builds two photorealistic model images from one or
 more reference photos of the same person (pass several with

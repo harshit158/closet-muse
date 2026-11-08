@@ -18,24 +18,26 @@ GARMENT_TYPE_NOUNS = {
 }
 
 # Mannequin forms offered in the onboarding dropdown, mapped to friendly labels.
+# Each form has a straight-on front image and a three-quarter tilted image; the
+# garment is applied to both so the try-on model sees two perspectives.
 MANNEQUIN_FORM_LABELS = {
-    "full_front": "Full body · front",
-    "full_side": "Full body · side",
+    "face": "Head, neck & shoulders",
     "top": "Upper body (head to hips)",
+    "full": "Full body",
     "bottom": "Lower body (waist to feet)",
     "feet": "Below knees & feet",
 }
 
 # Sensible default mannequin form per garment type (still user-overridable).
-# Categories without an obvious form fall back to "full_front" via .get(...).
+# Categories without an obvious form fall back to "full" via .get(...).
 DEFAULT_FORM_BY_GARMENT = {
     enums.WomenClothingMainCategory.TOPS: "top",
     enums.WomenClothingMainCategory.BOTTOMS: "bottom",
-    enums.WomenClothingMainCategory.ONE_PIECE: "full_front",
+    enums.WomenClothingMainCategory.ONE_PIECE: "full",
     enums.WomenClothingMainCategory.FOOTWEAR: "feet",
     enums.WomenClothingMainCategory.OUTERWEAR: "top",
-    enums.WomenClothingMainCategory.LOUNGEWEAR: "full_front",
-    enums.WomenClothingMainCategory.ACCESSORIES: "full_front",
+    enums.WomenClothingMainCategory.LOUNGEWEAR: "full",
+    enums.WomenClothingMainCategory.ACCESSORIES: "face",
 }
 
 
@@ -43,9 +45,11 @@ class OnboardWardrobe:
     def __init__(self, user_id: int):
         self.user_id = user_id
 
-        # store generated clothing image
+        # store generated clothing images (front + three-quarter perspectives)
         if "clothing_image" not in st.session_state:
             st.session_state.clothing_image = None
+        if "clothing_image_tilted" not in st.session_state:
+            st.session_state.clothing_image_tilted = None
 
         # attributes extracted from the uploaded photo(s)
         if "clothing_attributes" not in st.session_state:
@@ -65,7 +69,7 @@ class OnboardWardrobe:
     @staticmethod
     def _default_form_for(garment_type: enums.WomenClothingMainCategory) -> str:
         """The sensible default mannequin form for a garment type."""
-        return DEFAULT_FORM_BY_GARMENT.get(garment_type, "full_front")
+        return DEFAULT_FORM_BY_GARMENT.get(garment_type, "full")
 
     def _on_garment_type_change(self) -> None:
         """Snap the mannequin form to the new garment type's default.
@@ -131,11 +135,12 @@ class OnboardWardrobe:
                 key="mannequin_form",
             )
 
-        # Clear the preview and attributes whenever the uploaded set changes.
+        # Clear the previews and attributes whenever the uploaded set changes.
         signature = self._upload_signature(uploads)
         if signature != st.session_state.onboard_upload_signature:
             st.session_state.onboard_upload_signature = signature
             st.session_state.clothing_image = None
+            st.session_state.clothing_image_tilted = None
             st.session_state.clothing_attributes = None
 
         cols = st.columns([5, 5])
@@ -149,14 +154,19 @@ class OnboardWardrobe:
             else:
                 st.caption("Your uploaded photos will appear here.")
         with cols[1]:
-            if st.session_state.clothing_image is not None:
-                st.image(
-                    st.session_state.clothing_image,
-                    caption="Generated Preview",
-                    width="stretch",
-                )
-            else:
-                st.caption("Your generated preview will appear here.")
+            # Both perspectives are generated together, so they are shown side by
+            # side: the try-on model uses both to read the garment's fit.
+            preview_cols = st.columns(2)
+            previews = (
+                ("Front view", st.session_state.clothing_image),
+                ("Three-quarter view", st.session_state.clothing_image_tilted),
+            )
+            for preview_col, (caption, image) in zip(preview_cols, previews):
+                with preview_col:
+                    if image is not None:
+                        st.image(image, caption=caption, width="stretch")
+                    else:
+                        st.caption(f"{caption} will appear here.")
 
         if st.button("Generate Preview", width="stretch", disabled=not uploads):
             if not uploads:
@@ -166,15 +176,20 @@ class OnboardWardrobe:
             with st.status("Hang on while we polish your clothing ...", expanded=True):
                 st.write("Washing and ironing ...")
 
-                response = api_utils.polish_clothing_image(
-                    list(uploads), GARMENT_TYPE_NOUNS[garment_type], mannequin_form
-                )
-                if response.status_code != 200 or not response.content:
-                    st.error("Failed to generate preview.")
+                try:
+                    views = api_utils.polish_clothing_image(
+                        list(uploads), GARMENT_TYPE_NOUNS[garment_type], mannequin_form
+                    )
+                except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+                    st.error(f"Failed to generate preview: {exc}")
                     return
 
-                generated_image = api_utils.NamedBytesIO(response.content, "preview.png")
-                st.session_state.clothing_image = generated_image
+                st.session_state.clothing_image = api_utils.NamedBytesIO(
+                    views["front"], "preview_front.png"
+                )
+                st.session_state.clothing_image_tilted = api_utils.NamedBytesIO(
+                    views["tilted"], "preview_tilted.png"
+                )
 
                 st.write("Analyzing for details ...")
                 attrs = api_utils.generate_clothing_attributes(list(uploads))
@@ -209,6 +224,7 @@ class OnboardWardrobe:
                 user_id=self.user_id,
                 clothing=clothing_item,
                 image=st.session_state.clothing_image,
+                image_tilted=st.session_state.clothing_image_tilted,
             )
             label = clothing_item.sub_category or clothing_item.main_category.value
             st.success(f"Added {label} to your wardrobe!")
