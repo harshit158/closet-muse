@@ -48,15 +48,16 @@ Force a regeneration even if the outputs already exist::
 
     uv run python scripts/generate_model.py --overwrite
 
-The OpenRouter API key is read from the ``OPENROUTER_API_KEY`` environment
-variable (``.env`` is loaded automatically if present) or from ``--api-key``.
+The OpenRouter API key, endpoint, model, aspect ratio, seed, and timeout all come
+from ``closet_muse.settings`` (``.env`` is loaded automatically). The model is
+``IMAGE_MODEL_FASHION_MODEL``; ``--model`` overrides it for a single run, and
+``--api-key`` overrides the key.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
-import os
 import sys
 from io import BytesIO
 from pathlib import Path
@@ -64,15 +65,8 @@ from pathlib import Path
 import requests
 from PIL import Image, ImageOps
 
-try:  # optional convenience: load a local .env if python-dotenv is installed
-    from dotenv import load_dotenv
+from closet_muse.settings import settings
 
-    load_dotenv()
-except ModuleNotFoundError:  # pragma: no cover - dotenv is a project dependency
-    pass
-
-API_URL = "https://openrouter.ai/api/v1/images"
-DEFAULT_MODEL = "meta/muse-image"
 DEFAULT_REFERENCE_IMAGES = ["assets/avatar/model_ref.JPG"]
 DEFAULT_OUTPUT = "assets/avatar/model_generated.png"
 # Suffix appended to the front output path to derive the tilted-view path.
@@ -83,10 +77,6 @@ TILTED_SUFFIX = "_tilted"
 # anatomical left/right, so the prompt is written in image-relative terms.
 DEFAULT_TILT_DIRECTION = "right"
 DEFAULT_TILT_DEGREES = 30
-# Single full-body portrait output.
-DEFAULT_ASPECT_RATIO = "2:3"
-DEFAULT_SEED = 42
-DEFAULT_TIMEOUT = 180
 # References are downscaled and JPEG-encoded before base64 encoding: large
 # uncompressed uploads are dropped mid-TLS by OpenRouter (SSLEOFError).
 # Set ``--max-dimension 0`` to send the references untouched.
@@ -293,7 +283,9 @@ def _generate(
         "Content-Type": "application/json",
     }
 
-    response = requests.post(API_URL, json=payload, headers=headers, timeout=timeout)
+    response = requests.post(
+        settings.openrouter_image_url, json=payload, headers=headers, timeout=timeout
+    )
     response.raise_for_status()
     body = response.json()
 
@@ -354,13 +346,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_TILT_DEGREES,
         help="For the tilted view: how far the body is rotated from the front, in degrees.",
     )
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Image model to use.")
+    parser.add_argument(
+        "--model",
+        default=settings.image_model_fashion_model,
+        help="Image model to use (defaults to IMAGE_MODEL_FASHION_MODEL).",
+    )
     parser.add_argument(
         "--aspect-ratio",
-        default=DEFAULT_ASPECT_RATIO,
+        default=settings.image_aspect_ratio,
         help="Output aspect ratio; taller values suit a full-body portrait (e.g. 2:3, 3:4).",
     )
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Seed for reproducibility.")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=settings.image_seed,
+        help="Seed for reproducibility.",
+    )
     parser.add_argument(
         "--max-dimension",
         type=int,
@@ -376,8 +377,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_JPEG_QUALITY,
         help="JPEG quality (1-100) used when compressing references.",
     )
-    parser.add_argument("--api-key", default=None, help="OpenRouter API key (else $OPENROUTER_API_KEY).")
-    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="Request timeout (seconds).")
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="OpenRouter API key (else OPENROUTER_API_KEY from the environment/.env).",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=settings.image_timeout,
+        help="Request timeout (seconds).",
+    )
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -410,7 +420,7 @@ def main(argv: list[str] | None = None) -> int:
     if not pending:
         return 0
 
-    api_key = args.api_key or os.environ.get("OPENROUTER_API_KEY")
+    api_key = args.api_key or settings.openrouter_api_key
     if not api_key:
         print(
             "error: no API key. Set the OPENROUTER_API_KEY environment variable "

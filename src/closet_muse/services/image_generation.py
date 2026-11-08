@@ -1,6 +1,7 @@
-"""Image generation via the OpenRouter image API (``meta/muse-image``).
+"""Image generation via the OpenRouter image API.
 
-Two flows use the same API:
+Two flows use the same API, each with its own configurable model
+(``settings.image_model_polish`` and ``settings.image_model_tryon``):
 
 * the onboarding "polish" step dresses a reusable studio mannequin in the garment
   worn by the person in the uploaded photo; and
@@ -18,9 +19,6 @@ from PIL import Image
 
 from closet_muse.domain.schemas import ClothingWithImage
 from closet_muse.settings import settings
-
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/images"
-OPENROUTER_TIMEOUT = 180
 
 # ---------------------------------------------------------------------------
 # Dressed-mannequin prompt (ported from notebooks/open_ai_image_model.ipynb)
@@ -321,7 +319,7 @@ def _polish_one_view(
     )
 
     payload = {
-        "model": settings.image_model,
+        "model": settings.image_model_polish,
         "prompt": prompt,
         "aspect_ratio": settings.image_aspect_ratio,
         "input_references": [
@@ -347,7 +345,10 @@ def _polish_one_view(
     }
 
     response = requests.post(
-        OPENROUTER_API_URL, json=payload, headers=headers, timeout=OPENROUTER_TIMEOUT
+        settings.openrouter_image_url,
+        json=payload,
+        headers=headers,
+        timeout=settings.image_timeout,
     )
     response.raise_for_status()
     body = response.json()
@@ -532,7 +533,7 @@ def generate_fashion_image(
                 )
 
     payload = {
-        "model": settings.image_model,
+        "model": settings.image_model_tryon,
         "prompt": _build_tryon_prompt(clothings),
         "aspect_ratio": settings.image_aspect_ratio,
         "input_references": input_references,
@@ -546,7 +547,10 @@ def generate_fashion_image(
     }
 
     response = requests.post(
-        OPENROUTER_API_URL, json=payload, headers=headers, timeout=OPENROUTER_TIMEOUT
+        settings.openrouter_image_url,
+        json=payload,
+        headers=headers,
+        timeout=settings.image_timeout,
     )
     response.raise_for_status()
     body = response.json()
