@@ -9,7 +9,6 @@ from typing import Protocol
 import zipfile
 
 import requests
-from PIL import Image
 
 from closet_muse.domain.enums import WomenClothingMainCategory
 from closet_muse.domain.schemas import ClothingBase, ClothingUpdate
@@ -167,15 +166,26 @@ def clothing_counts(user_id: int) -> dict[str, int]:
     return response.json()
 
 
-def generate_outfit(user_id: int, clothing_ids: list[str]) -> Image.Image | None:
-    """Generate an outfit image for a specific user based on the provided clothing IDs."""
+def generate_outfit(user_id: int, clothing_ids: list[str]) -> dict[str, bytes] | None:
+    """Generate one outfit image per model view for the given clothing IDs.
+
+    The backend returns a ZIP archive holding one PNG per model view, so this
+    unpacks it into ``{"left": bytes, "center": bytes, "right": bytes}``.
+    Returns ``None`` on a failed or empty response.
+    """
     response = _post(
         f"/outfits/generate/{user_id}",
         json={"clothing_ids": clothing_ids},
     )
     if response.status_code != 200 or not response.content:
         return None
-    return Image.open(BytesIO(response.content))
+
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        return {
+            name.removesuffix(".png"): archive.read(name)
+            for name in archive.namelist()
+            if name.endswith(".png")
+        }
 
 
 def upload_avatar(user_id: int, image: FileLike) -> dict:
