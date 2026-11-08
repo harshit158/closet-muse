@@ -465,6 +465,7 @@ Present the person wearing the given clothing items so the outfit is immediately
 3. SUBJECT PRESERVATION
 * Preserve the subject's face, hair, and hand positions exactly; keep skin texture identical.
 * Keep the subject's body proportions and pose unchanged.
+* The subject photograph may be a straight-on front view or a three-quarter view. Keep the subject's exact camera angle and body orientation: a three-quarter view must stay a three-quarter view, and a front view must stay a front view.
 * Keep the original lighting and shadows.
 
 4. OUTPUT QUALITY
@@ -500,15 +501,10 @@ def _build_tryon_prompt(clothings: dict[str, ClothingWithImage]) -> str:
     return _TRYON_PROMPT.format(clothing_details=clothing_details)
 
 
-def generate_fashion_image(
+def _tryon_one_view(
     clothings: dict[str, ClothingWithImage], model_path: str
-) -> Image.Image | None:
-    """Generate a virtual try-on image and return it as a PIL image."""
-    if not settings.openrouter_api_key:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. Configure it in your .env file."
-        )
-
+) -> bytes | None:
+    """Dress one model view in the outfit and return the PNG bytes."""
     model_file = Path(model_path)
     if not model_file.is_file():
         raise FileNotFoundError(f"Model image not found: {model_file}")
@@ -562,4 +558,51 @@ def generate_fashion_image(
     if not data or not data[0].get("b64_json"):
         return None
 
-    return Image.open(BytesIO(base64.b64decode(data[0]["b64_json"])))
+    return base64.b64decode(data[0]["b64_json"])
+
+
+def generate_fashion_images(
+    clothings: dict[str, ClothingWithImage], model_paths: dict[str, str]
+) -> dict[str, bytes]:
+    """Generate one virtual try-on image per model view.
+
+    ``model_paths`` maps a view name (``"left"``, ``"center"``, ``"right"``) to
+    the model photograph used as the subject for that view. Each view is an
+    independent request, so they run concurrently and the pose of each subject
+    photograph is preserved in its own output.
+
+    Returns ``{view_name: png_bytes}``. Raises ``RuntimeError`` if any view came
+    back without an image, so a partial set of looks is never stored.
+    """
+    if not settings.openrouter_api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set. Configure it in your .env file."
+        )
+    if not model_paths:
+        raise ValueError("At least one model view is required to generate an outfit.")
+
+    # Fail fast on a missing subject before spending any API calls.
+    for view, model_path in model_paths.items():
+        if not Path(model_path).is_file():
+            raise FileNotFoundError(
+                f"Model image for the {view} view not found: {model_path}"
+            )
+
+    def _run(model_path: str) -> bytes | None:
+        return _tryon_one_view(clothings, model_path)
+
+    # The views are independent requests, so run them concurrently.
+    with ThreadPoolExecutor(max_workers=len(model_paths)) as executor:
+        futures = {
+            view: executor.submit(_run, model_path)
+            for view, model_path in model_paths.items()
+        }
+        results = {view: future.result() for view, future in futures.items()}
+
+    missing = [view for view, data in results.items() if not data]
+    if missing:
+        raise RuntimeError(
+            f"Image generation returned no image for the {', '.join(missing)} view."
+        )
+
+    return {view: data for view, data in results.items() if data is not None}

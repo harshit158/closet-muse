@@ -2,6 +2,7 @@
 
 import io
 import uuid
+import zipfile
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -19,7 +20,12 @@ router = APIRouter(prefix="/outfits", tags=["outfits"])
 def generate_outfit(
     user_id: int, request: OutfitRequest, session: SessionDep
 ) -> Response:
-    """Generate a virtual try-on image from selected wardrobe items."""
+    """Generate a virtual try-on image per model view from selected wardrobe items.
+
+    Every view in ``settings.model_image_views`` is dressed in the same outfit, so
+    the response is a ZIP archive holding one PNG per view (``left.png``,
+    ``center.png``, ``right.png``).
+    """
     selections: dict[str, ClothingWithImage] = {}
 
     for clothing_id in request.clothing_ids:
@@ -49,22 +55,24 @@ def generate_outfit(
             image_data_tilted=tilted_data,
         )
 
-    image = image_generation.generate_fashion_image(
-        selections, model_path=settings.model_image_path
-    )
-    if image is None:
-        raise HTTPException(status_code=502, detail="Outfit generation returned no image.")
+    # One try-on per model view; fall back to the single subject image when no
+    # view map is configured.
+    model_paths = settings.model_image_views or {
+        "center": settings.model_image_path
+    }
+    try:
+        views = image_generation.generate_fashion_images(selections, model_paths)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    image_bytes = buffer.getvalue()
-
-    filename = storage.save_image(settings.storage_bucket_generated, image_bytes)
-    return Response(
-        content=image_bytes,
-        media_type="image/png",
-        headers={"X-Image-Path": filename},
-    )
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for view, image_bytes in views.items():
+            storage.save_image(settings.storage_bucket_generated, image_bytes)
+            archive.writestr(f"{view}.png", image_bytes)
+    return Response(content=buffer.getvalue(), media_type="application/zip")
 
 
 @router.get("/image/{filename}")

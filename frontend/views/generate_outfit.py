@@ -15,15 +15,14 @@ def _fetch_image_cached(bucket: str, path: str) -> bytes:
     return api_utils.fetch_image(bucket, path)
 
 
-@st.cache_data(show_spinner=False)
-def _model_view_bytes(path: str, max_width: int = 900) -> bytes:
-    """Load a model view once as a small JPEG.
+def _to_display_bytes(data: bytes, max_width: int = 900) -> bytes:
+    """Downscale image bytes to a small JPEG for display.
 
     The source PNGs are ~2.5 MB each and Streamlit re-encodes them on every
     rerun, which made the carousel arrows feel sluggish. Downscaling once and
     handing Streamlit ready-made JPEG bytes keeps each arrow click snappy.
     """
-    with Image.open(path) as img:
+    with Image.open(BytesIO(data)) as img:
         img = img.convert("RGB")
         if img.width > max_width:
             height = round(img.height * max_width / img.width)
@@ -31,6 +30,13 @@ def _model_view_bytes(path: str, max_width: int = 900) -> bytes:
         buffer = BytesIO()
         img.save(buffer, format="JPEG", quality=88, optimize=True)
         return buffer.getvalue()
+
+
+@st.cache_data(show_spinner=False)
+def _model_view_bytes(path: str, max_width: int = 900) -> bytes:
+    """Load a model view once as a small JPEG (cached across reruns)."""
+    with open(path, "rb") as file:
+        return _to_display_bytes(file.read(), max_width)
 
 
 @dataclass
@@ -55,7 +61,8 @@ class OutfitGenerator:
         if "look_index" not in st.session_state:
             st.session_state.look_index = 0
 
-        # generated outfit image (PIL); when set it replaces the carousel
+        # generated looks (view name -> display JPEG bytes); when set they
+        # replace the model photos in the carousel
         if "generated_outfit" not in st.session_state:
             st.session_state.generated_outfit = None
 
@@ -162,23 +169,30 @@ class OutfitGenerator:
 
     @st.fragment
     def display_look_panel(self) -> None:
-        """Show the generated look, or the model-photo carousel when idle.
+        """Show the generated looks, or the model-photo carousel when idle.
+
+        Both modes share one non-wrapping ◀ / ▶ carousel: the model photos
+        (left, center, right) when idle, and the generated look for each of
+        those views once an outfit has been generated.
 
         Rendered as a fragment so the carousel arrows only rerun this panel
         instead of the whole page (which re-downloads the wardrobe gallery).
         """
         generated = st.session_state.get("generated_outfit")
-        if generated is not None:
-            st.image(generated, width="stretch")
-            if st.button("Back to photos", width="stretch"):
-                st.session_state.generated_outfit = None
-                st.rerun(scope="fragment")
-            return
+        view_names = list(self.MODEL_VIEWS)
 
-        views = list(self.MODEL_VIEWS.items())
-        index = min(max(st.session_state.look_index, 0), len(views) - 1)
-        _, path = views[index]
-        st.image(_model_view_bytes(path), width="stretch")
+        if generated:
+            # Keep the display order of the model views, but only for the views
+            # the backend actually returned.
+            names = [name for name in view_names if name in generated]
+            names = names or list(generated)
+            count = len(names)
+            index = min(max(st.session_state.look_index, 0), count - 1)
+            st.image(generated[names[index]], width="stretch")
+        else:
+            count = len(view_names)
+            index = min(max(st.session_state.look_index, 0), count - 1)
+            st.image(_model_view_bytes(self.MODEL_VIEWS[view_names[index]]), width="stretch")
 
         with st.container(horizontal=True):
             if st.button(
@@ -192,11 +206,16 @@ class OutfitGenerator:
             if st.button(
                 "▶",
                 key="look_next",
-                disabled=index == len(views) - 1,
+                disabled=index == count - 1,
                 width="stretch",
             ):
                 st.session_state.look_index = index + 1
                 st.rerun(scope="fragment")
+
+        if generated and st.button("Back to photos", width="stretch"):
+            st.session_state.generated_outfit = None
+            st.session_state.look_index = 0
+            st.rerun(scope="fragment")
 
     def display_preview(self) -> None:
         """Display generation controls."""
@@ -208,7 +227,7 @@ class OutfitGenerator:
                 self.generate_surprise_outfit()
 
     def generate_outfit(self) -> None:
-        """Generate outfit based on selected items."""
+        """Generate one look per model view from the selected items."""
         clothing_ids = [
             str(c["id"]) for c in st.session_state.clothing_selections.values()
         ]
@@ -216,13 +235,23 @@ class OutfitGenerator:
             st.warning("Select at least one clothing item first.")
             return
 
-        with st.spinner("Generating your outfit..."):
-            image = api_utils.generate_outfit(self.user_id, clothing_ids)
-        if image:
-            st.session_state.generated_outfit = image
-            st.rerun()
-        else:
+        with st.spinner("Generating your looks..."):
+            views = api_utils.generate_outfit(self.user_id, clothing_ids)
+        if not views:
             st.error("Failed to generate outfit.")
+            return
+
+        # Downscale each look once here, so the carousel arrows never re-encode
+        # the full-size PNGs on a rerun.
+        st.session_state.generated_outfit = {
+            name: _to_display_bytes(data) for name, data in views.items()
+        }
+        # Start on the center view, matching the model-photo carousel.
+        view_names = list(self.MODEL_VIEWS)
+        st.session_state.look_index = (
+            view_names.index("center") if "center" in view_names else len(view_names) // 2
+        )
+        st.rerun()
 
     def generate_surprise_outfit(self) -> None:
         """Generate surprise outfit (placeholder for future implementation)."""
