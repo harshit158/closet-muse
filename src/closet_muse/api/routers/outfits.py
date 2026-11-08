@@ -32,11 +32,21 @@ def generate_outfit(
         data = storage.read_image(
             settings.storage_bucket_clothing, item.image_path or ""
         )
+        # The tilted perspective is optional: items onboarded before it existed
+        # have no second image, and the try-on prompt handles a single reference.
+        tilted_data = (
+            storage.read_image(
+                settings.storage_bucket_clothing, item.image_path_tilted
+            )
+            if item.image_path_tilted
+            else None
+        )
         category = item.main_category
         key = category.value if hasattr(category, "value") else str(category)
         selections[key] = ClothingWithImage(
             clothing=ClothingBase(**item.model_dump()),
             image_data=data,
+            image_data_tilted=tilted_data,
         )
 
     image = image_generation.generate_fashion_image(

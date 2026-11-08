@@ -23,7 +23,13 @@ engine = create_engine(
 
 
 def create_db_and_tables() -> None:
-    """Create all tables defined by SQLModel metadata."""
+    """Create all tables defined by SQLModel metadata.
+
+    ``create_all`` is idempotent: it creates missing tables and leaves existing
+    ones (and their rows) untouched. It does NOT add columns to a table that
+    already exists, so a new field needs either a fresh database (``make clean``)
+    or a one-off ``ALTER TABLE``.
+    """
     # Import models so they are registered on SQLModel.metadata before create_all.
     from closet_muse.db import models  # noqa: F401
 

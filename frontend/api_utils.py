@@ -6,6 +6,7 @@ never import ``closet_muse.db`` or ``closet_muse.services``.
 
 from io import BytesIO
 from typing import Protocol
+import zipfile
 
 import requests
 from PIL import Image
@@ -56,10 +57,31 @@ def _delete(path: str, **kwargs) -> requests.Response:
 
 def polish_clothing_image(
     images: list[FileLike], garment_type: str, mannequin_form: str
-) -> requests.Response:
+) -> dict[str, bytes]:
+    """Dress both mannequin perspectives in the garment.
+
+    The backend returns a ZIP archive holding one PNG per view, so this unpacks
+    it into ``{"front": bytes, "tilted": bytes}``. Raises ``requests.HTTPError``
+    on a failed request and ``ValueError`` if the archive is missing a view.
+    """
     files = [("files", (image.name, image.getvalue(), image.type)) for image in images]
     data = {"garment_type": garment_type, "mannequin_form": mannequin_form}
-    return _post("/images/polish/", files=files, data=data)
+    response = _post("/images/polish/", files=files, data=data)
+    response.raise_for_status()
+
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        views = {
+            name.removesuffix(".png"): archive.read(name)
+            for name in archive.namelist()
+            if name.endswith(".png")
+        }
+
+    missing = {"front", "tilted"} - views.keys()
+    if missing:
+        raise ValueError(
+            f"Polish response is missing the {', '.join(sorted(missing))} view."
+        )
+    return views
 
 
 def generate_clothing_attributes(images: list[FileLike]) -> ClothingBase | None:
@@ -86,11 +108,26 @@ def fetch_image(bucket: str, filename: str) -> bytes:
     return response.content
 
 
-def add_clothing_item(user_id: int, clothing: ClothingBase, image: FileLike) -> dict:
-    # Upload first, then attach the returned filename to the record.
+def add_clothing_item(
+    user_id: int,
+    clothing: ClothingBase,
+    image: FileLike,
+    image_tilted: FileLike | None = None,
+) -> dict:
+    """Create a wardrobe item, uploading its front and tilted images.
+
+    ``image_tilted`` is the same garment on the three-quarter mannequin; it is
+    optional so an item can still be saved with a single perspective.
+    """
+    # Upload first, then attach the returned filenames to the record.
     filename = upload_image(settings.storage_bucket_clothing, image)
     payload = clothing.model_dump(mode="json")
     payload["image_path"] = filename
+
+    if image_tilted is not None:
+        payload["image_path_tilted"] = upload_image(
+            settings.storage_bucket_clothing, image_tilted
+        )
 
     response = _post(f"/clothing/{user_id}", json=payload)
     response.raise_for_status()

@@ -1,6 +1,10 @@
 """Image routes: polish, attribute extraction, upload, and retrieval."""
 
+import io
+import zipfile
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
 from closet_muse.domain.schemas import ClothingBase
@@ -15,23 +19,38 @@ async def polish_image(
     garment_type: str = Form(...),
     mannequin_form: str = Form(...),
 ) -> Response:
-    """Dress a studio mannequin in the garment worn by the person in the photo(s)."""
+    """Dress a studio mannequin in the garment worn by the person in the photo(s).
+
+    The garment is applied to both perspectives of the chosen form, so the
+    response is a ZIP archive containing ``front.png`` and ``tilted.png``.
+    """
     if not files:
         raise HTTPException(status_code=422, detail="At least one image is required.")
 
     image_bytes = [await file.read() for file in files]
     mime_types = [file.content_type or "image/png" for file in files]
     try:
-        result = image_generation.polish_clothing_image(
-            image_bytes, garment_type, mannequin_form, mime_types
+        # Generation is blocking (two concurrent HTTP calls), so keep it off the
+        # event loop.
+        views = await run_in_threadpool(
+            image_generation.polish_clothing_image,
+            image_bytes,
+            garment_type,
+            mannequin_form,
+            mime_types,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    if result is None:
-        raise HTTPException(status_code=502, detail="Image generation returned no image.")
-    return Response(content=result, media_type="image/png")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for view, data in views.items():
+            archive.writestr(f"{view}.png", data)
+    return Response(content=buffer.getvalue(), media_type="application/zip")
 
 
 @router.post("/attributes/")
