@@ -143,30 +143,14 @@ class OnboardWardrobe:
             st.session_state.clothing_image_tilted = None
             st.session_state.clothing_attributes = None
 
-        cols = st.columns([5, 5])
-        with cols[0]:
-            if uploads:
-                thumb_cols = st.columns(min(len(uploads), 3))
-                for index, photo in enumerate(uploads):
-                    with thumb_cols[index % len(thumb_cols)]:
-                        caption = "Primary photo" if index == 0 else f"Photo {index + 1}"
-                        st.image(photo, caption=caption, width="stretch")
-            else:
-                st.caption("Your uploaded photos will appear here.")
-        with cols[1]:
-            # Both perspectives are generated together, so they are shown side by
-            # side: the try-on model uses both to read the garment's fit.
-            preview_cols = st.columns(2)
-            previews = (
-                ("Front view", st.session_state.clothing_image),
-                ("Three-quarter view", st.session_state.clothing_image_tilted),
-            )
-            for preview_col, (caption, image) in zip(preview_cols, previews):
-                with preview_col:
-                    if image is not None:
-                        st.image(image, caption=caption, width="stretch")
-                    else:
-                        st.caption(f"{caption} will appear here.")
+        if uploads:
+            thumb_cols = st.columns(min(len(uploads), 3))
+            for index, photo in enumerate(uploads):
+                with thumb_cols[index % len(thumb_cols)]:
+                    caption = "Primary photo" if index == 0 else f"Photo {index + 1}"
+                    st.image(photo, caption=caption, width="stretch")
+        else:
+            st.caption("Your uploaded photos will appear here.")
 
         if st.button("Generate Preview", width="stretch", disabled=not uploads):
             if not uploads:
@@ -204,6 +188,29 @@ class OnboardWardrobe:
                     st.session_state._pending_garment_type = attrs.main_category
                 st.rerun()
 
+    def display_previews(self) -> None:
+        """Render the generated front and three-quarter previews.
+
+        Both perspectives are generated together, so they are shown side by
+        side: the try-on model uses both to read the garment's fit.
+        """
+        previews = (
+            ("Front view", st.session_state.clothing_image),
+            ("Three-quarter view", st.session_state.clothing_image_tilted),
+        )
+
+        if all(image is None for _, image in previews):
+            styles.empty_state("Your generated previews will appear here.", "✨")
+            return
+
+        preview_cols = st.columns(2)
+        for preview_col, (caption, image) in zip(preview_cols, previews):
+            with preview_col:
+                if image is not None:
+                    st.image(image, caption=caption, width="stretch")
+                else:
+                    st.caption(f"{caption} will appear here.")
+
     @st.fragment
     def display_clothing_form(self):
         attrs = st.session_state.clothing_attributes
@@ -215,11 +222,15 @@ class OnboardWardrobe:
         )
 
         clothing_item = clothing_form.render_clothing_fields(
-            attrs, main_category=main_category
+            attrs, main_category=main_category, layout="grid"
         )
 
-        # Submit button
-        if st.button("Add Clothing Item", width="stretch"):
+        # Submit button — kept narrow so it does not span the full-width card.
+        button_cols = st.columns([1, 2])
+        with button_cols[0]:
+            submitted = st.button("Add Clothing Item", width="stretch")
+
+        if submitted:
             api_utils.add_clothing_item(
                 user_id=self.user_id,
                 clothing=clothing_item,
@@ -230,17 +241,23 @@ class OnboardWardrobe:
             st.success(f"Added {label} to your wardrobe!")
 
     def render(self):
-        cols = st.columns([60, 40], border=False)
+        # Row 1: what to add (left) next to the generated previews (right).
+        top = st.columns([55, 45], border=False)
 
-        with cols[0]:
+        with top[0]:
             with styles.card("cm-card-upload"):
                 styles.section_label("Add a piece")
                 self.display_image_generator()
 
-        with cols[1]:
-            with styles.card("cm-card-details"):
-                styles.section_label("Item details")
-                self.display_clothing_form()
+        with top[1]:
+            with styles.card("cm-card-previews"):
+                styles.section_label("Generated previews")
+                self.display_previews()
+
+        # Row 2: the item's attributes, spanning the full page width.
+        with styles.card("cm-card-details"):
+            styles.section_label("Item details")
+            self.display_clothing_form()
 
 
 def run(user_id: int = 1):

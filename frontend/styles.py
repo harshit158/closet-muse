@@ -147,6 +147,29 @@ def inject_css() -> None:
             height: 100%;
         }}
 
+        /* ---- Uploaded reference photos ----
+           These are inputs, not the focus of the page: cap their height so the
+           "Add a piece" card stays compact next to the generated previews. */
+        [class*="st-key-cm-card-upload"] [data-testid="stImage"] img {{
+            width: 100%;
+            height: 220px;
+            object-fit: cover;
+            border-radius: var(--cm-radius-sm);
+        }}
+
+        /* ---- Equal-height cards in a row ----
+           A keyed card is a flex item that only grows to its content, so two
+           cards side by side end up ragged. Stretch the column's inner
+           vertical blocks so both cards fill the row height. */
+        div[data-testid="stColumn"]:has([class*="st-key-cm-card-upload"]) > div[data-testid="stVerticalBlock"],
+        div[data-testid="stColumn"]:has([class*="st-key-cm-card-previews"]) > div[data-testid="stVerticalBlock"],
+        div[data-testid="stColumn"]:has([class*="st-key-cm-card-upload"]) > div[data-testid="stVerticalBlock"] > div[data-testid="stLayoutWrapper"],
+        div[data-testid="stColumn"]:has([class*="st-key-cm-card-previews"]) > div[data-testid="stVerticalBlock"] > div[data-testid="stLayoutWrapper"],
+        div[data-testid="stColumn"]:has([class*="st-key-cm-card-upload"]) > div[data-testid="stVerticalBlock"] > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"],
+        div[data-testid="stColumn"]:has([class*="st-key-cm-card-previews"]) > div[data-testid="stVerticalBlock"] > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"] {{
+            height: 100%;
+        }}
+
         /* ---- Buttons ---- */
         .stButton > button {{
             border-radius: var(--cm-radius-sm);

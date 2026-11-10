@@ -45,6 +45,7 @@ def render_clothing_fields(
     key_prefix: str | None = None,
     show_category: bool = False,
     main_category: enums.WomenClothingMainCategory | None = None,
+    layout: str = "stacked",
 ) -> schemas.ClothingBase:
     """Render the clothing attribute widgets and return the entered values.
 
@@ -54,7 +55,13 @@ def render_clothing_fields(
     auto-generated keys (the onboarding form relies on this). When
     ``show_category`` is true the main category is editable; otherwise
     ``main_category`` is used as-is.
+
+    ``layout`` is either ``"stacked"`` (one field per row, used by the narrow
+    edit dialog) or ``"grid"`` (three fields per row, for the full-width
+    onboarding card).
     """
+    if layout not in {"stacked", "grid"}:
+        raise ValueError(f"layout must be 'stacked' or 'grid', got {layout!r}")
 
     def _key(name: str) -> str | None:
         return f"{key_prefix}_{name}" if key_prefix else None
@@ -75,26 +82,27 @@ def render_clothing_fields(
 
     main_category = main_category or list(enums.WomenClothingMainCategory)[0]
 
-    # SUB CATEGORY
-    sub_categories = list(enums.CATEGORY_MAPPING.get(main_category, []))
-    sub_category = st.selectbox(
-        "Sub-category",
-        index=_index_of(sub_categories, defaults.sub_category if defaults else None),
-        options=sub_categories,
-        format_func=lambda x: x.value,
-        key=_key("sub_category"),
-    )
+    # Each field is a small closure so the same widgets can be arranged either
+    # stacked (dialog) or in a grid (full-width card) without duplication.
+    def _sub_category_field():
+        sub_categories = list(enums.CATEGORY_MAPPING.get(main_category, []))
+        return st.selectbox(
+            "Sub-category",
+            index=_index_of(sub_categories, defaults.sub_category if defaults else None),
+            options=sub_categories,
+            format_func=lambda x: x.value,
+            key=_key("sub_category"),
+        )
 
-    # COLOR + MATERIAL
-    cols = st.columns([20, 80])
-    with cols[0]:
-        color = st.text_input(
+    def _color_field():
+        return st.text_input(
             "Color (optional)",
             value=defaults.color if defaults else None,
             key=_key("color"),
         )
-    with cols[1]:
-        material = st.selectbox(
+
+    def _material_field():
+        return st.selectbox(
             "Material (optional)",
             index=_index_of(
                 list(enums.Material),
@@ -105,50 +113,90 @@ def render_clothing_fields(
             key=_key("material"),
         )
 
-    # PATTERN
-    pattern = st.selectbox(
-        "Pattern (optional)",
-        index=_index_of(
-            list(enums.Pattern),
-            defaults.pattern.value if (defaults and defaults.pattern) else None,
-        ),
-        options=list(enums.Pattern),
-        format_func=lambda x: x.value,
-        key=_key("pattern"),
-    )
+    def _pattern_field():
+        return st.selectbox(
+            "Pattern (optional)",
+            index=_index_of(
+                list(enums.Pattern),
+                defaults.pattern.value if (defaults and defaults.pattern) else None,
+            ),
+            options=list(enums.Pattern),
+            format_func=lambda x: x.value,
+            key=_key("pattern"),
+        )
 
-    # BRAND
-    brand = st.text_input(
-        "Brand (optional)",
-        value=defaults.brand if defaults else None,
-        key=_key("brand"),
-    )
+    def _brand_field():
+        return st.text_input(
+            "Brand (optional)",
+            value=defaults.brand if defaults else None,
+            key=_key("brand"),
+        )
 
-    # SIZE
-    size = st.text_input(
-        "Size (optional)",
-        value=defaults.size if defaults else None,
-        key=_key("size"),
-    )
+    def _size_field():
+        return st.text_input(
+            "Size (optional)",
+            value=defaults.size if defaults else None,
+            key=_key("size"),
+        )
 
-    # SEASON
-    season = st.selectbox(
-        "Season (optional)",
-        index=_index_of(
-            list(enums.Season),
-            defaults.season.value if (defaults and defaults.season) else None,
-        ),
-        options=list(enums.Season),
-        format_func=lambda x: x.value if x else "",
-        key=_key("season"),
-    )
+    def _season_field():
+        return st.selectbox(
+            "Season (optional)",
+            index=_index_of(
+                list(enums.Season),
+                defaults.season.value if (defaults and defaults.season) else None,
+            ),
+            options=list(enums.Season),
+            format_func=lambda x: x.value if x else "",
+            key=_key("season"),
+        )
 
-    # DESCRIPTION
-    description = st.text_area(
-        "Description (optional)",
-        value=defaults.description if defaults else None,
-        key=_key("description"),
-    )
+    def _description_field():
+        return st.text_area(
+            "Description (optional)",
+            value=defaults.description if defaults else None,
+            key=_key("description"),
+        )
+
+    if layout == "grid":
+        # Row 1: sub-category, color, material
+        row = st.columns(3)
+        with row[0]:
+            sub_category = _sub_category_field()
+        with row[1]:
+            color = _color_field()
+        with row[2]:
+            material = _material_field()
+
+        # Row 2: pattern, brand, size
+        row = st.columns(3)
+        with row[0]:
+            pattern = _pattern_field()
+        with row[1]:
+            brand = _brand_field()
+        with row[2]:
+            size = _size_field()
+
+        # Row 3: season, then description spanning the remaining width
+        row = st.columns([1, 2])
+        with row[0]:
+            season = _season_field()
+        with row[1]:
+            description = _description_field()
+    else:
+        sub_category = _sub_category_field()
+
+        cols = st.columns([20, 80])
+        with cols[0]:
+            color = _color_field()
+        with cols[1]:
+            material = _material_field()
+
+        pattern = _pattern_field()
+        brand = _brand_field()
+        size = _size_field()
+        season = _season_field()
+        description = _description_field()
 
     return schemas.ClothingBase(
         main_category=main_category,
