@@ -60,6 +60,16 @@ class OnboardWardrobe:
         if "clothing_attributes" not in st.session_state:
             st.session_state.clothing_attributes = None
 
+        # Pending preview-generation request, recorded by the upload card and
+        # consumed by the previews card (which renders after it). This lets the
+        # status and the generated images appear together in the previews card.
+        if "onboard_preview_request" not in st.session_state:
+            st.session_state.onboard_preview_request = None
+
+        # Error from the last failed preview generation, surfaced in the card.
+        if "onboard_preview_error" not in st.session_state:
+            st.session_state.onboard_preview_error = None
+
         # Bumped whenever the detail widgets must re-seed from the current
         # attributes. It is part of their keys, so a bump creates NEW widgets
         # (see ``_reset_form``).
@@ -154,6 +164,8 @@ class OnboardWardrobe:
             st.session_state.clothing_image = None
             st.session_state.clothing_image_tilted = None
             st.session_state.clothing_attributes = None
+            st.session_state.onboard_preview_request = None
+            st.session_state.onboard_preview_error = None
             self._reset_form()
 
         if uploads:
@@ -166,35 +178,70 @@ class OnboardWardrobe:
             st.caption("Your uploaded photos will appear here.")
 
         if st.button("Generate Preview", width="stretch", disabled=not uploads):
-            if not uploads:
-                st.error("Please upload at least one image first.")
-                return
+            # The previews card renders AFTER this one, so record the request
+            # instead of generating here: the status box and the resulting
+            # images then both live in the "Generated previews" card, and no
+            # extra rerun is needed (the card consumes it in this same run).
+            st.session_state.onboard_preview_request = {
+                "photos": [
+                    api_utils.NamedBytesIO(photo.getvalue(), photo.name)
+                    for photo in uploads
+                ],
+                "garment_noun": GARMENT_TYPE_NOUNS[garment_type],
+                "mannequin_form": mannequin_form,
+            }
+            st.session_state.onboard_preview_error = None
 
-            with st.status("Hang on while we polish your clothing ...", expanded=True):
-                st.write("Washing and ironing ...")
+    def _generate_previews(self, slot) -> None:
+        """Run the pending preview request behind a plain spinner in ``slot``.
 
-                try:
+        The spinner stands in for the previews: no label text, just a ring
+        centred in the card. It is dropped as soon as generation finishes so
+        the card settles on the images (or on the error message).
+        """
+        request = st.session_state.onboard_preview_request
+        st.session_state.onboard_preview_request = None
+        st.session_state.onboard_preview_error = None
+
+        views = None
+        try:
+            with slot.container(key="cm-preview-loader"):
+                with st.spinner(""):
                     views = api_utils.polish_clothing_image(
-                        list(uploads), GARMENT_TYPE_NOUNS[garment_type], mannequin_form
+                        request["photos"],
+                        request["garment_noun"],
+                        request["mannequin_form"],
                     )
-                except Exception as exc:  # noqa: BLE001 - surfaced to the UI
-                    st.error(f"Failed to generate preview: {exc}")
-                    return
+        except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+            st.session_state.onboard_preview_error = (
+                f"Failed to generate preview: {exc}"
+            )
+        finally:
+            slot.empty()
 
-                st.session_state.clothing_image = api_utils.NamedBytesIO(
-                    views["front"], "preview_front.png"
-                )
-                st.session_state.clothing_image_tilted = api_utils.NamedBytesIO(
-                    views["tilted"], "preview_tilted.png"
-                )
-                st.rerun()
+        if views is None:
+            return
+
+        st.session_state.clothing_image = api_utils.NamedBytesIO(
+            views["front"], "preview_front.png"
+        )
+        st.session_state.clothing_image_tilted = api_utils.NamedBytesIO(
+            views["tilted"], "preview_tilted.png"
+        )
 
     def display_previews(self) -> None:
-        """Render the generated front and three-quarter previews.
+        """Render the generating status, then the generated previews.
 
         Both perspectives are generated together, so they are shown side by
         side: the try-on model uses both to read the garment's fit.
         """
+        if st.session_state.onboard_preview_request is not None:
+            self._generate_previews(st.empty())
+
+        error = st.session_state.onboard_preview_error
+        if error:
+            st.error(error)
+
         previews = (
             ("Front view", st.session_state.clothing_image),
             ("Three-quarter view", st.session_state.clothing_image_tilted),
