@@ -11,13 +11,12 @@ Two flows use the same API, each with its own configurable model
 import base64
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from io import BytesIO
 from pathlib import Path
 
 import requests
-from PIL import Image
 
 from closet_muse.domain.schemas import ClothingWithImage
+from closet_muse.services.openrouter import require_api_key, to_data_url
 from closet_muse.settings import settings
 
 # ---------------------------------------------------------------------------
@@ -262,34 +261,6 @@ def build_dressed_prompt(
     )
 
 
-def _detect_mime(data: bytes) -> str:
-    """Detect an image's MIME type from its bytes, defaulting to ``image/png``."""
-    try:
-        with Image.open(BytesIO(data)) as img:
-            fmt = (img.format or "").upper()
-    except Exception:  # noqa: BLE001 - fall back to a safe default
-        return "image/png"
-    return {
-        "JPEG": "image/jpeg",
-        "JPG": "image/jpeg",
-        "PNG": "image/png",
-        "WEBP": "image/webp",
-        "GIF": "image/gif",
-        "BMP": "image/bmp",
-    }.get(fmt, "image/png")
-
-
-def _to_data_url(data: bytes, mime: str | None = None) -> str:
-    """Return a ``data:`` URL for the given image bytes.
-
-    The MIME type is detected from the bytes unless one is explicitly given, so
-    the declared type always matches the actual image (OpenRouter rejects a
-    mismatch with a 400).
-    """
-    mime = mime or _detect_mime(data)
-    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
-
-
 def _mannequin_reference_path(mannequin_form: str, view: str = "front") -> Path:
     """Resolve the reference mannequin image path for a form and view."""
     key = (mannequin_form, view)
@@ -325,12 +296,12 @@ def _polish_one_view(
         "input_references": [
             {
                 "type": "image_url",
-                "image_url": {"url": _to_data_url(reference_path.read_bytes())},
+                "image_url": {"url": to_data_url(reference_path.read_bytes())},
             },
             *(
                 {
                     "type": "image_url",
-                    "image_url": {"url": _to_data_url(image, mime)},
+                    "image_url": {"url": to_data_url(image, mime)},
                 }
                 for image, mime in zip(image_list, mime_list)
             ),
@@ -387,10 +358,7 @@ def polish_clothing_image(
     ``RuntimeError`` if either view came back without an image, so a partially
     dressed item is never stored.
     """
-    if not settings.openrouter_api_key:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. Configure it in your .env file."
-        )
+    require_api_key()
 
     # Accept a lone bytes object as well as a sequence, and normalise the MIME types.
     image_list: list[bytes] = [bytes(images)] if isinstance(images, (bytes, bytearray)) else [bytes(i) for i in images]
@@ -515,7 +483,7 @@ def _tryon_one_view(
     input_references = [
         {
             "type": "image_url",
-            "image_url": {"url": _to_data_url(model_file.read_bytes())},
+            "image_url": {"url": to_data_url(model_file.read_bytes())},
         }
     ]
     for clothing in clothings.values():
@@ -524,7 +492,7 @@ def _tryon_one_view(
                 input_references.append(
                     {
                         "type": "image_url",
-                        "image_url": {"url": _to_data_url(data)},
+                        "image_url": {"url": to_data_url(data)},
                     }
                 )
 
@@ -574,10 +542,7 @@ def generate_fashion_images(
     Returns ``{view_name: png_bytes}``. Raises ``RuntimeError`` if any view came
     back without an image, so a partial set of looks is never stored.
     """
-    if not settings.openrouter_api_key:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. Configure it in your .env file."
-        )
+    require_api_key()
     if not model_paths:
         raise ValueError("At least one model view is required to generate an outfit.")
 

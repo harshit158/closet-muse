@@ -24,9 +24,10 @@ class Settings(BaseSettings):
     image_seed: int = 42
     mannequin_dir: str = "assets/avatar"
 
-    # clothing-attribute extraction (local Ollama vision model)
-    attribute_model: str = "qwen3-vl:4b"
-    ollama_host: str | None = None  # None = the ollama client's default host
+    # clothing-attribute extraction (OpenRouter chat completions, structured output)
+    openrouter_chat_url: str = "https://openrouter.ai/api/v1/chat/completions"
+    attribute_model: str = "deepseek/deepseek-v4.1-flash-1017"
+    attribute_timeout: int = 120
 
     # local database (SQLite)
     sqlite_path: str = "var/closet_muse.db"
