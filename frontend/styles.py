@@ -170,6 +170,25 @@ def inject_css() -> None:
             height: 100%;
         }}
 
+        /* ---- Preview generation loader ----
+           While the previews are generated a bare spinner (no label) stands in
+           for them, centred in the card so the card doesn't collapse. */
+        [class*="st-key-cm-preview-loader"] {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 240px;
+        }}
+        [class*="st-key-cm-preview-loader"] [data-testid="stSpinner"] {{
+            margin: 0;
+            justify-content: center;
+        }}
+        [class*="st-key-cm-preview-loader"] [data-testid="stSpinner"] > div {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+
         /* ---- Buttons ---- */
         .stButton > button {{
             border-radius: var(--cm-radius-sm);
