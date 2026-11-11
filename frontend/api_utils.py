@@ -83,15 +83,16 @@ def polish_clothing_image(
     return views
 
 
-def generate_clothing_attributes(images: list[FileLike]) -> ClothingBase | None:
+def generate_clothing_attributes(images: list[FileLike]) -> ClothingBase:
+    """Extract clothing attributes from the uploaded photos.
+
+    Raises ``requests.HTTPError`` on a failed request so the caller can surface
+    the failure; extraction is a user-triggered step of its own.
+    """
     files = [("files", (image.name, image.getvalue(), image.type)) for image in images]
-    try:
-        response = _post("/images/attributes/", files=files)
-        response.raise_for_status()
-        return ClothingBase(**response.json())
-    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
-        print(exc)
-        return None
+    response = _post("/images/attributes/", files=files)
+    response.raise_for_status()
+    return ClothingBase(**response.json())
 
 
 def upload_image(bucket: str, file: FileLike) -> str:
