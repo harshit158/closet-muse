@@ -6,6 +6,7 @@ and no schema juggling — SQLite has no schema concept beyond the default.
 
 from pathlib import Path
 
+from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine
 
 from closet_muse.settings import settings
@@ -22,13 +23,34 @@ engine = create_engine(
 )
 
 
+@event.listens_for(engine, "connect")
+def _sqlite_pragmas(dbapi_connection, connection_record) -> None:
+    """Apply per-connection SQLite PRAGMAs.
+
+    - ``foreign_keys=ON``: SQLite defaults to OFF, which makes every
+      ``REFERENCES`` clause decorative. Enabling it means ``ON DELETE CASCADE``
+      and FK violations are actually enforced.
+    - ``journal_mode=WAL``: lets Streamlit and FastAPI read while the other
+      writes, instead of serialising on a rollback journal.
+    - ``busy_timeout=5000``: wait up to 5s for a lock instead of failing
+      immediately with ``database is locked``.
+    """
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+    finally:
+        cursor.close()
+
+
 def create_db_and_tables() -> None:
     """Create all tables defined by SQLModel metadata.
 
     ``create_all`` is idempotent: it creates missing tables and leaves existing
     ones (and their rows) untouched. It does NOT add columns to a table that
     already exists, so a new field needs either a fresh database (``make clean``)
-    or a one-off ``ALTER TABLE``.
+    or the ``ensure_columns()`` helper (Phase 2 of ``db_plan.md``).
     """
     # Import models so they are registered on SQLModel.metadata before create_all.
     from closet_muse.db import models  # noqa: F401
