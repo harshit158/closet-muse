@@ -1,7 +1,12 @@
 import streamlit as st
 from frontend import api_utils, styles
 from frontend.views import clothing_form
-from closet_muse.domain import enums
+from closet_muse.domain import enums, schemas
+
+# Namespace for the item-details widgets. It must NOT be "onboard":
+# ``clothing_form.clear_fields`` matches by prefix, so that would also wipe the
+# uploader and the upload-signature bookkeeping.
+FORM_KEY_PREFIX = "onboard_form"
 
 
 # Garment types offered in the onboarding dropdown = the main clothing categories.
@@ -83,26 +88,7 @@ class OnboardWardrobe:
             st.session_state.garment_type
         )
 
-    def _apply_pending_garment_type(self) -> None:
-        """Adopt a category extracted during preview before the widget is built.
-
-        Streamlit forbids writing a keyed widget's session value after the widget
-        is instantiated, so the extracted category is stashed under a separate
-        (non-widget) key and applied here, ahead of the ``garment_type`` selectbox.
-        The mannequin form is snapped to the new category's default too, since a
-        programmatic write does not fire the selectbox's ``on_change`` callback.
-        """
-        pending = st.session_state.pop("_pending_garment_type", None)
-        if pending is None:
-            return
-        st.session_state.garment_type = pending
-        st.session_state.mannequin_form = self._default_form_for(pending)
-
     def display_image_generator(self):
-        # Apply any category extracted by a previous preview run BEFORE the
-        # garment_type widget is instantiated (writing it afterwards is illegal).
-        self._apply_pending_garment_type()
-
         uploads = st.file_uploader(
             "Upload one or more photos of your clothing item",
             type=["png", "jpg", "jpeg"],
@@ -135,13 +121,16 @@ class OnboardWardrobe:
                 key="mannequin_form",
             )
 
-        # Clear the previews and attributes whenever the uploaded set changes.
+        # Clear the previews, attributes and detail fields whenever the uploaded
+        # set changes. This runs before the details form is built (row 2), so
+        # dropping its widget keys here is safe.
         signature = self._upload_signature(uploads)
         if signature != st.session_state.onboard_upload_signature:
             st.session_state.onboard_upload_signature = signature
             st.session_state.clothing_image = None
             st.session_state.clothing_image_tilted = None
             st.session_state.clothing_attributes = None
+            clothing_form.clear_fields(FORM_KEY_PREFIX)
 
         if uploads:
             thumb_cols = st.columns(min(len(uploads), 3))
@@ -174,18 +163,6 @@ class OnboardWardrobe:
                 st.session_state.clothing_image_tilted = api_utils.NamedBytesIO(
                     views["tilted"], "preview_tilted.png"
                 )
-
-                st.write("Analyzing for details ...")
-                attrs = api_utils.generate_clothing_attributes(list(uploads))
-                st.session_state.clothing_attributes = attrs
-
-                # Let the extracted category drive the Garment type dropdown so the
-                # item lands in the same main category it was polished/detected as.
-                # Stash it under a non-widget key; it is applied on the next run
-                # before the garment_type widget is instantiated (writing the
-                # widget key directly here is illegal once the widget exists).
-                if attrs is not None:
-                    st.session_state._pending_garment_type = attrs.main_category
                 st.rerun()
 
     def display_previews(self) -> None:
@@ -212,33 +189,41 @@ class OnboardWardrobe:
                     st.caption(f"{caption} will appear here.")
 
     @st.fragment
-    def display_clothing_form(self):
+    def display_clothing_form(self) -> schemas.ClothingBase:
+        """Render the details card: extract action, then the attribute fields.
+
+        Extraction is its own step, independent of preview generation, so it
+        lives here next to the fields it fills. The button sits ABOVE the
+        widgets, which lets the freshly extracted values seed the fields in the
+        same run (their keys can still be cleared at this point).
+        """
+        uploads = st.session_state.get("onboard_uploader") or []
+
+        if st.button("Extract details", width="stretch", disabled=not uploads):
+            with st.spinner("Reading the garment details ..."):
+                try:
+                    attrs = api_utils.generate_clothing_attributes(list(uploads))
+                except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+                    st.error(f"Failed to extract details: {exc}")
+                else:
+                    st.session_state.clothing_attributes = attrs
+                    # Drop any previously entered values so the form re-seeds
+                    # from the new extraction (a re-run overwrites the form).
+                    clothing_form.clear_fields(FORM_KEY_PREFIX)
+
         attrs = st.session_state.clothing_attributes
 
-        # CATEGORY — driven by the Garment type selection in the preview step
-        # (which itself is pre-filled from the extracted attributes).
+        # CATEGORY — driven by the Garment type selection in the preview step.
         main_category = st.session_state.get(
             "garment_type", list(enums.WomenClothingMainCategory)[0]
         )
 
-        clothing_item = clothing_form.render_clothing_fields(
-            attrs, main_category=main_category, layout="grid"
+        return clothing_form.render_clothing_fields(
+            attrs,
+            key_prefix=FORM_KEY_PREFIX,
+            main_category=main_category,
+            layout="grid",
         )
-
-        # Submit button — kept narrow so it does not span the full-width card.
-        button_cols = st.columns([1, 2])
-        with button_cols[0]:
-            submitted = st.button("Add Clothing Item", width="stretch")
-
-        if submitted:
-            api_utils.add_clothing_item(
-                user_id=self.user_id,
-                clothing=clothing_item,
-                image=st.session_state.clothing_image,
-                image_tilted=st.session_state.clothing_image_tilted,
-            )
-            label = clothing_item.sub_category or clothing_item.main_category.value
-            st.success(f"Added {label} to your wardrobe!")
 
     def render(self):
         # Row 1: what to add (left) next to the generated previews (right).
@@ -257,7 +242,23 @@ class OnboardWardrobe:
         # Row 2: the item's attributes, spanning the full page width.
         with styles.card("cm-card-details"):
             styles.section_label("Item details")
-            self.display_clothing_form()
+            clothing_item = self.display_clothing_form()
+
+        # The save action commits BOTH the previews and the details, so it sits
+        # outside the details card rather than inside it.
+        if st.button(
+            "Add Clothing Item",
+            width="stretch",
+            disabled=st.session_state.clothing_image is None,
+        ):
+            api_utils.add_clothing_item(
+                user_id=self.user_id,
+                clothing=clothing_item,
+                image=st.session_state.clothing_image,
+                image_tilted=st.session_state.clothing_image_tilted,
+            )
+            label = clothing_item.sub_category or clothing_item.main_category.value
+            st.success(f"Added {label} to your wardrobe!")
 
 
 def run(user_id: int = 1):
