@@ -7,6 +7,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
+from closet_muse.domain.enums import WomenClothingMainCategory
 from closet_muse.domain.schemas import ClothingBase
 from closet_muse.services import attribute_extraction, image_generation, storage
 
@@ -54,13 +55,32 @@ async def polish_image(
 
 
 @router.post("/attributes/")
-async def extract_attributes(files: list[UploadFile] = File(...)) -> ClothingBase:
-    """Extract clothing attributes from one or more photos of the item using the local vision model."""
+async def extract_attributes(
+    files: list[UploadFile] = File(...),
+    main_category: WomenClothingMainCategory | None = Form(None),
+) -> ClothingBase:
+    """Extract clothing attributes from one or more photos of the item.
+
+    ``main_category`` is the garment type the user already selected; when given,
+    the extraction is constrained to it so the result fits the form.
+
+    The extraction is a blocking HTTP call to OpenRouter, so it runs in a
+    threadpool to keep the event loop free.
+    """
     if not files:
         raise HTTPException(status_code=422, detail="At least one image is required.")
 
     image_bytes = [await file.read() for file in files]
-    return attribute_extraction.extract_clothing_attributes(image_bytes)
+    try:
+        return await run_in_threadpool(
+            attribute_extraction.extract_clothing_attributes,
+            image_bytes,
+            main_category,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 @router.post("/upload/{bucket}/")

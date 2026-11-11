@@ -10,7 +10,7 @@ Two processes talk to each other over HTTP:
 frontend/  (Streamlit UI)  --- HTTP --->  src/closet_muse/api  (FastAPI)
                                                      |
                                                      +--> src/closet_muse/db       (SQLite via SQLModel)
-                                                     +--> src/closet_muse/services (OpenRouter, Ollama, local storage)
+                                                     +--> src/closet_muse/services (OpenRouter, local storage)
 ```
 
 - `src/closet_muse/` — the importable application package (backend API + shared domain).
@@ -20,8 +20,7 @@ frontend/  (Streamlit UI)  --- HTTP --->  src/closet_muse/api  (FastAPI)
 
 - Python >= 3.11
 - [uv](https://docs.astral.sh/uv/)
-- [Ollama](https://ollama.com/) running locally with the `qwen3-vl:4b` model (for attribute extraction)
-- An OpenRouter API key (for image generation)
+- An OpenRouter API key (for image generation and attribute extraction)
 
 ## Setup
 
@@ -51,9 +50,22 @@ change.
 apply to all of them. The scripts also accept `--model` to override the model for
 a single run.
 
-Attribute extraction uses a local Ollama vision model: `ATTRIBUTE_MODEL`
-(default `qwen3-vl:4b`) and `OLLAMA_HOST` (default: the Ollama client's own
-default).
+### Attribute extraction
+
+Attribute extraction uses an OpenRouter vision model with
+[structured outputs](https://openrouter.ai/docs/features/structured-outputs):
+the request sends a JSON schema derived from `ClothingBase` as
+`response_format`, so the reply is schema-conforming JSON rather than free text.
+
+| variable              | default                                        |
+| --------------------- | ---------------------------------------------- |
+| `ATTRIBUTE_MODEL`     | `deepseek/deepseek-v4.1-flash-1017`            |
+| `OPENROUTER_CHAT_URL` | `https://openrouter.ai/api/v1/chat/completions` |
+| `ATTRIBUTE_TIMEOUT`   | `120`                                          |
+
+The model must accept image input and be served by a provider that supports
+structured outputs; `provider.require_parameters` restricts routing to those
+endpoints, so an unsupported model fails loudly instead of returning free text.
 
 ## Run
 

@@ -60,6 +60,12 @@ class OnboardWardrobe:
         if "clothing_attributes" not in st.session_state:
             st.session_state.clothing_attributes = None
 
+        # Bumped whenever the detail widgets must re-seed from the current
+        # attributes. It is part of their keys, so a bump creates NEW widgets
+        # (see ``_reset_form``).
+        if "onboard_details_generation" not in st.session_state:
+            st.session_state.onboard_details_generation = 0
+
         # fingerprint of the uploaded photo set, used to reset stale previews
         if "onboard_upload_signature" not in st.session_state:
             st.session_state.onboard_upload_signature = ()
@@ -70,6 +76,24 @@ class OnboardWardrobe:
         return tuple(
             (photo.name, len(photo.getvalue())) for photo in (uploads or [])
         )
+
+    @property
+    def _form_key_prefix(self) -> str:
+        """Widget-key namespace for the detail form, unique per generation."""
+        return f"{FORM_KEY_PREFIX}_{st.session_state.onboard_details_generation}"
+
+    def _reset_form(self) -> None:
+        """Make the detail widgets re-seed from the current attributes.
+
+        Popping the widget keys is not enough: Streamlit restores a keyed
+        widget's value from the frontend even when its ``session_state`` entry
+        is gone, so the fields would keep showing the previous (empty) values
+        until some unrelated rerun. Bumping the generation changes every key,
+        which makes them brand-new widgets that take their value from
+        ``defaults``.
+        """
+        st.session_state.onboard_details_generation += 1
+        clothing_form.clear_fields(FORM_KEY_PREFIX)
 
     @staticmethod
     def _default_form_for(garment_type: enums.WomenClothingMainCategory) -> str:
@@ -130,7 +154,7 @@ class OnboardWardrobe:
             st.session_state.clothing_image = None
             st.session_state.clothing_image_tilted = None
             st.session_state.clothing_attributes = None
-            clothing_form.clear_fields(FORM_KEY_PREFIX)
+            self._reset_form()
 
         if uploads:
             thumb_cols = st.columns(min(len(uploads), 3))
@@ -194,33 +218,35 @@ class OnboardWardrobe:
 
         Extraction is its own step, independent of preview generation, so it
         lives here next to the fields it fills. The button sits ABOVE the
-        widgets, which lets the freshly extracted values seed the fields in the
-        same run (their keys can still be cleared at this point).
+        widgets, so the extraction can bump the form generation before the
+        widgets are built and they seed from the new values in the same run.
         """
         uploads = st.session_state.get("onboard_uploader") or []
-
-        if st.button("Extract details", width="stretch", disabled=not uploads):
-            with st.spinner("Reading the garment details ..."):
-                try:
-                    attrs = api_utils.generate_clothing_attributes(list(uploads))
-                except Exception as exc:  # noqa: BLE001 - surfaced to the UI
-                    st.error(f"Failed to extract details: {exc}")
-                else:
-                    st.session_state.clothing_attributes = attrs
-                    # Drop any previously entered values so the form re-seeds
-                    # from the new extraction (a re-run overwrites the form).
-                    clothing_form.clear_fields(FORM_KEY_PREFIX)
-
-        attrs = st.session_state.clothing_attributes
 
         # CATEGORY — driven by the Garment type selection in the preview step.
         main_category = st.session_state.get(
             "garment_type", list(enums.WomenClothingMainCategory)[0]
         )
 
+        if st.button("Extract details", width="stretch", disabled=not uploads):
+            with st.spinner("Reading the garment details ..."):
+                try:
+                    attrs = api_utils.generate_clothing_attributes(
+                        list(uploads), main_category
+                    )
+                except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+                    st.error(f"Failed to extract details: {exc}")
+                else:
+                    st.session_state.clothing_attributes = attrs
+                    # Re-seed the form from the new extraction (a re-run
+                    # overwrites the form).
+                    self._reset_form()
+
+        attrs = st.session_state.clothing_attributes
+
         return clothing_form.render_clothing_fields(
             attrs,
-            key_prefix=FORM_KEY_PREFIX,
+            key_prefix=self._form_key_prefix,
             main_category=main_category,
             layout="grid",
         )

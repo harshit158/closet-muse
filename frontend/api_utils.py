@@ -83,14 +83,22 @@ def polish_clothing_image(
     return views
 
 
-def generate_clothing_attributes(images: list[FileLike]) -> ClothingBase:
+def generate_clothing_attributes(
+    images: list[FileLike],
+    main_category: WomenClothingMainCategory | None = None,
+) -> ClothingBase:
     """Extract clothing attributes from the uploaded photos.
+
+    ``main_category`` is the garment type the user already selected; when given,
+    the backend constrains the category and sub-category to it, so the result
+    always fits the form.
 
     Raises ``requests.HTTPError`` on a failed request so the caller can surface
     the failure; extraction is a user-triggered step of its own.
     """
     files = [("files", (image.name, image.getvalue(), image.type)) for image in images]
-    response = _post("/images/attributes/", files=files)
+    data = {"main_category": main_category.value} if main_category else None
+    response = _post("/images/attributes/", files=files, data=data)
     response.raise_for_status()
     return ClothingBase(**response.json())
 
