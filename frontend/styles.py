@@ -115,6 +115,40 @@ def inject_css() -> None:
             text-transform: uppercase;
             color: var(--cm-primary-dark);
         }}
+        /* Right-hand cluster of the hero: tagline + credit balance. */
+        .cm-hero-meta {{
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }}
+        .cm-credits {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.3rem 0.75rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid var(--cm-border);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--cm-primary-dark);
+            white-space: nowrap;
+        }}
+        .cm-credits-label {{
+            font-weight: 400;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            font-size: 0.68rem;
+            color: var(--cm-text-muted);
+        }}
+        /* Empty wallet: the balance reads as a warning, not a neutral stat. */
+        .cm-credits--empty {{
+            background: #FBEDEA;
+            border-color: #E7C4BC;
+            color: #A34A3C;
+        }}
 
         /* ---- Cards (keyed container: st.container(key="cm-card-...")) ---- */
         [class*="st-key-cm-card"] {{
@@ -467,8 +501,13 @@ def card(key: str, title: str | None = None):
     return container
 
 
-def hero(image_path: str, tagline: str = "") -> None:
-    """Render a full-width gradient hero band with a centered logo."""
+def hero(image_path: str, tagline: str = "", credits: int | None = None) -> None:
+    """Render a full-width gradient hero band with a centered logo.
+
+    ``credits`` renders the user's remaining generation credits as a pill on the right,
+    next to the tagline. ``None`` omits the pill entirely, so a failed balance fetch
+    degrades to the plain hero instead of showing a misleading zero.
+    """
     import base64
     from pathlib import Path
 
@@ -480,8 +519,23 @@ def hero(image_path: str, tagline: str = "") -> None:
         img_tag = ""
 
     tagline_html = f'<p class="cm-hero-tagline">{tagline}</p>' if tagline else ""
+
+    credits_html = ""
+    if credits is not None:
+        # An empty wallet is a state the user must notice, so it gets its own style.
+        modifier = " cm-credits--empty" if credits <= 0 else ""
+        credits_html = (
+            f'<span class="cm-credits{modifier}">'
+            '<span class="cm-credits-label">Credits</span>'
+            f"{credits}</span>"
+        )
+
+    meta_html = ""
+    if tagline_html or credits_html:
+        meta_html = f'<div class="cm-hero-meta">{tagline_html}{credits_html}</div>'
+
     st.markdown(
-        f'<div class="cm-hero">{img_tag}{tagline_html}</div>',
+        f'<div class="cm-hero">{img_tag}{meta_html}</div>',
         unsafe_allow_html=True,
     )
 
