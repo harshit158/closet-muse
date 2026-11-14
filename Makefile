@@ -1,4 +1,4 @@
-.PHONY: install migrate migration downgrade backend frontend dev seed mannequins model clean
+.PHONY: install migrate migration downgrade backend frontend dev seed mannequins model gc clean
 
 VENV := .venv
 UVICORN := $(VENV)/bin/uvicorn
@@ -18,6 +18,10 @@ migration:
 # Roll back one revision.
 downgrade:
 	uv run alembic downgrade -1
+
+# Report image files that no database row references. Dry run: add APPLY=1 to delete.
+gc:
+	uv run python scripts/gc_storage.py $(if $(APPLY),--apply,)
 
 backend: migrate
 	uv run $(UVICORN) closet_muse.api.main:app --host 0.0.0.0 --reload
