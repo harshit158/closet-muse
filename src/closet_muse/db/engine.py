@@ -1,13 +1,16 @@
 """SQLite engine and session management.
 
-Uses a local SQLite file (see ``settings.sqlite_path``). No remote database
-and no schema juggling — SQLite has no schema concept beyond the default.
+Uses a local SQLite file (see ``settings.sqlite_path``).
+
+The schema is owned by Alembic, not by ``SQLModel.metadata.create_all()``. Run
+``make migrate`` to create or update the database; the application never issues DDL.
+See ``migrations/env.py`` and ``scripts/migrate.py``.
 """
 
 from pathlib import Path
 
 from sqlalchemy import event
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, create_engine
 
 from closet_muse.settings import settings
 
@@ -34,6 +37,9 @@ def _sqlite_pragmas(dbapi_connection, connection_record) -> None:
       writes, instead of serialising on a rollback journal.
     - ``busy_timeout=5000``: wait up to 5s for a lock instead of failing
       immediately with ``database is locked``.
+
+    Note: Alembic builds its own engine and deliberately does NOT use this
+    listener, because batch-mode table rebuilds require foreign keys to be off.
     """
     cursor = dbapi_connection.cursor()
     try:
@@ -42,20 +48,6 @@ def _sqlite_pragmas(dbapi_connection, connection_record) -> None:
         cursor.execute("PRAGMA busy_timeout=5000")
     finally:
         cursor.close()
-
-
-def create_db_and_tables() -> None:
-    """Create all tables defined by SQLModel metadata.
-
-    ``create_all`` is idempotent: it creates missing tables and leaves existing
-    ones (and their rows) untouched. It does NOT add columns to a table that
-    already exists, so a new field needs either a fresh database (``make clean``)
-    or the ``ensure_columns()`` helper (Phase 2 of ``db_plan.md``).
-    """
-    # Import models so they are registered on SQLModel.metadata before create_all.
-    from closet_muse.db import models  # noqa: F401
-
-    SQLModel.metadata.create_all(engine)
 
 
 def get_session() -> Session:

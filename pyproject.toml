@@ -16,6 +16,7 @@ dependencies = [
     "streamlit-image-select>=0.6.0",
     "uvicorn>=0.38.0",
     "foundry @ git+https://github.com/harshit158/foundry.git@main",
+    "alembic>=1.20.1",
 ]
 
 [build-system]

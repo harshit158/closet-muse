@@ -70,25 +70,47 @@ endpoints, so an unsupported model fails loudly instead of returning free text.
 ## Run
 
 ```bash
+make migrate   # create/update the SQLite schema (Alembic)
 make backend   # FastAPI at http://localhost:8000  (docs at /docs)
 make frontend  # Streamlit UI
 make dev       # both, in parallel
 make seed      # create a local user in the SQLite DB
 ```
 
+`make backend` and `make seed` run `make migrate` first, so the schema is always current.
+The application itself never issues DDL.
+
 ## Database schema
 
-Tables are created from the SQLModel definitions on backend startup
-(`create_db_and_tables()`), so there is no migration step to run.
-
-`create_all()` is idempotent — it creates missing tables and leaves existing
-ones and their rows alone — but it does **not** add a column to a table that
-already exists. After adding a field to a model, either start from a fresh
-database (`make clean`) or apply a one-off `ALTER TABLE`:
+The schema is owned by **Alembic**, not by `SQLModel.metadata.create_all()`. Migrations live
+in `migrations/versions/`; `migrations/env.py` resolves the database URL from
+`settings.sqlite_path`.
 
 ```bash
-sqlite3 var/closet_muse.db "ALTER TABLE clothing ADD COLUMN image_path_tilted VARCHAR;"
+make migrate                    # apply pending revisions (safe to re-run)
+make migration m="add color_hex" # autogenerate a revision from model changes
+make downgrade                  # roll back one revision
+make clean                      # delete the DB; follow with `make migrate`
 ```
+
+**After changing a model, run `make migration` then `make migrate`.** Never hand-edit a
+table with `ALTER TABLE`.
+
+Two details worth knowing:
+
+- **`render_as_batch=True`** — SQLite cannot `ALTER` a table in place, so every non-additive
+  change (dropping a column, changing a constraint) is done as create-copy-drop-rename.
+- **Alembic uses its own engine** and does not enable `PRAGMA foreign_keys`, because batch
+  rebuilds fail when foreign keys are enforced mid-copy. The app's engine (`db/engine.py`)
+  still enables it at runtime.
+
+Enum columns store the enum **name** (`"ONE_PIECE"`, `"POLYESTER"`), not its value, and
+SQLite renders them as `VARCHAR(n)` with no `CHECK` constraint.
+
+### Adopting a pre-Alembic database
+
+`make migrate` detects a database that has tables but no `alembic_version` row and stamps
+the baseline revision instead of replaying it, so an existing wardrobe is never re-created.
 
 ## Assets
 
