@@ -17,6 +17,18 @@ from closet_muse.settings import settings
 router = APIRouter(prefix="/outfits", tags=["outfits"])
 
 
+def _polished_path(item: models.Clothing, view: str) -> str | None:
+    """The stored filename of one polished view, or ``None`` when it is missing.
+
+    Polished renders live in ``clothing_image`` (one row per view) since revision
+    ``0006``. Items onboarded before the tilted view existed have no ``tilted`` row.
+    """
+    for image in item.images:
+        if image.view == view:
+            return image.image_path
+    return None
+
+
 def _load_selections(
     user_id: int, clothing_ids: list[uuid.UUID], session: Session
 ) -> tuple[dict[str, ClothingWithImage], list[models.Clothing]]:
@@ -35,22 +47,28 @@ def _load_selections(
                 status_code=404, detail=f"Clothing item {clothing_id} not found."
             )
 
-        data = storage.read_image(
-            settings.storage_bucket_clothing, item.image_path or ""
-        )
+        front_path = _polished_path(item, "front")
+        if front_path is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Clothing item {clothing_id} has no polished front image.",
+            )
+
+        data = storage.read_image(settings.storage_bucket_clothing, front_path)
         # The tilted perspective is optional: items onboarded before it existed
         # have no second image, and the try-on prompt handles a single reference.
+        tilted_path = _polished_path(item, "tilted")
         tilted_data = (
-            storage.read_image(
-                settings.storage_bucket_clothing, item.image_path_tilted
-            )
-            if item.image_path_tilted
+            storage.read_image(settings.storage_bucket_clothing, tilted_path)
+            if tilted_path
             else None
         )
         category = item.main_category
         key = category.value if hasattr(category, "value") else str(category)
         selections[key] = ClothingWithImage(
-            clothing=ClothingBase(**item.model_dump()),
+            # ``model_validate`` (not ``**model_dump()``) because the row now carries
+            # ``images`` / ``source_images``, which ``ClothingBase`` does not declare.
+            clothing=ClothingBase.model_validate(item),
             image_data=data,
             image_data_tilted=tilted_data,
         )

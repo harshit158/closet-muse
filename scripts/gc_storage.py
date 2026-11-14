@@ -22,9 +22,9 @@ Safety properties, in order of importance:
   that has not been migrated (or a mistyped ``SQLITE_PATH``) must never be interpreted as
   "every file is an orphan" — that would delete the entire wardrobe.
 
-Buckets and the columns that own them are declared in ``BUCKET_SOURCES``. Phase 7 of
-``db_plan.md`` adds ``clothing_source`` and moves the polished clothing images into
-``clothing_image``; add those columns there when that revision lands.
+Buckets and the columns that own them are declared in ``BUCKET_SOURCES``. Revision ``0006``
+moved the polished clothing images into ``clothing_image`` and added the
+``clothing_source`` bucket for the user's original uploads; both are listed there.
 """
 
 from __future__ import annotations
@@ -57,10 +57,11 @@ BUCKET_SOURCES: tuple[BucketSource, ...] = (
     ),
     BucketSource(
         bucket=settings.storage_bucket_clothing,
-        sources=(
-            ("clothing", "image_path"),
-            ("clothing", "image_path_tilted"),
-        ),
+        sources=(("clothing_image", "image_path"),),
+    ),
+    BucketSource(
+        bucket=settings.storage_bucket_clothing_source,
+        sources=(("clothing_source_image", "image_path"),),
     ),
     BucketSource(
         bucket=settings.storage_bucket_avatar,

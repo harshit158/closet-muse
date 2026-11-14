@@ -36,7 +36,10 @@ def _reset_gallery_widgets() -> None:
 
 @st.dialog("Edit item", width="large")
 def _edit_dialog(item: dict) -> None:
-    defaults = schemas.ClothingBase(**item)
+    # ``model_validate`` rather than ``ClothingBase(**item)``: the API response also
+    # carries ``images`` / ``source_images`` / ``id``, which ``ClothingBase`` does not
+    # declare. Pydantic ignores the extras, but only when validating a mapping.
+    defaults = schemas.ClothingBase.model_validate(item)
     edited = clothing_form.render_clothing_fields(
         defaults,
         key_prefix=f"edit_{item['id']}",
@@ -47,9 +50,9 @@ def _edit_dialog(item: dict) -> None:
     cols = st.columns(2)
     with cols[0]:
         if st.button("Save changes", type="primary", width="stretch"):
-            payload = schemas.ClothingUpdate(
-                **edited.model_dump(exclude={"image_path"})
-            )
+            # ``ClothingBase`` no longer carries the image fields (they moved into
+            # ``clothing_image``), so the dump is already attribute-only.
+            payload = schemas.ClothingUpdate(**edited.model_dump())
             api_utils.update_clothing_item(item["id"], payload)
             _forget_selection(item)
             _reset_gallery_widgets()

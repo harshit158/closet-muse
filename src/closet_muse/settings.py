@@ -34,7 +34,8 @@ class Settings(BaseSettings):
 
     # local image storage
     storage_dir: str = "var/storage"
-    storage_bucket_clothing: str = "clothing"   # stores clothing images
+    storage_bucket_clothing: str = "clothing"   # stores polished clothing images
+    storage_bucket_clothing_source: str = "clothing_source"  # the user's uploads
     storage_bucket_avatar: str = "avatar"       # stores user avatars
     storage_bucket_generated: str = "generated"  # stores generated outfit images
 

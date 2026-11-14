@@ -8,7 +8,7 @@ import datetime
 import uuid
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 from sqlmodel import SQLModel, Field
 
 from closet_muse.domain import enums
@@ -80,21 +80,79 @@ class ClothingBase(SQLModel):
         description="Mannequin form the item's polished images were generated on",
     )
 
-    image_path: Optional[str] = None
 
-    # Second perspective of the same item: the garment dressed on the
-    # three-quarter (tilted) mannequin. The try-on generator uses both images so
-    # the model can read the garment's fit and drape from two angles. Items
-    # onboarded before this existed have no tilted image.
-    image_path_tilted: Optional[str] = None
+class ClothingImageRead(SQLModel):
+    """One polished render of a garment on one mannequin view."""
+
+    view: str
+    image_path: str
+
+
+class ClothingImageCreate(SQLModel):
+    """A polished render to attach to a new garment."""
+
+    view: str
+    image_path: str
+
+
+class ClothingSourceImageRead(SQLModel):
+    """One of the user's original upload photos for a garment."""
+
+    image_path: str
+    position: int
+
+
+class ClothingRead(ClothingBase):
+    """A wardrobe item as returned by the API.
+
+    The polished images live in ``images`` (one row per view) and the user's uploads
+    in ``source_images``. ``image_path`` / ``image_path_tilted`` are **computed** from
+    ``images`` so the existing readers (the gallery, the selection tray, the edit
+    dialog, and the try-on generator) keep working unchanged.
+    """
+
+    id: uuid.UUID
+    user_id: int
+    created_at: datetime.datetime
+    images: list[ClothingImageRead] = []
+    source_images: list[ClothingSourceImageRead] = []
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def image_path(self) -> Optional[str]:
+        """The front-view polished image, if one was stored."""
+        return self._image_for("front")
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def image_path_tilted(self) -> Optional[str]:
+        """The three-quarter polished image; ``None`` for items without one."""
+        return self._image_for("tilted")
+
+    def _image_for(self, view: str) -> Optional[str]:
+        for image in self.images:
+            if image.view == view:
+                return image.image_path
+        return None
+
+
+class ClothingCreate(ClothingBase):
+    """A new wardrobe item, with its polished views and original uploads.
+
+    ``source_image_paths`` are filenames already stored in the ``clothing_source``
+    bucket, in upload order (index 0 is the primary reference).
+    """
+
+    images: list[ClothingImageCreate] = []
+    source_image_paths: list[str] = []
 
 
 class ClothingUpdate(SQLModel):
     """Partial update for a wardrobe item.
 
     Every field is optional so a PATCH only touches what the client sends
-    (``model_dump(exclude_unset=True)``). ``image_path`` is intentionally
-    absent: replacing an item's image is not supported here.
+    (``model_dump(exclude_unset=True)``). The image collections are intentionally
+    absent: replacing an item's images is not supported here.
     """
 
     main_category: Optional[enums.WomenClothingMainCategory] = None
