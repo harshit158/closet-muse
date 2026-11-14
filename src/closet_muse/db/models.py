@@ -9,6 +9,7 @@ import datetime
 import uuid
 from typing import Optional
 
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from closet_muse.domain.schemas import ClothingBase, UserCreate
@@ -65,16 +66,35 @@ class Outfit(SQLModel, table=True):
     season: Optional[str] = None
 
 
-class GeneratedImage(SQLModel, table=True):
-    """AI-generated visuals (for try-ons or AI outfits)."""
+class OutfitImage(SQLModel, table=True):
+    """A persisted try-on render: one row per model view per outfit.
+
+    Ordering is deliberately not stored. The frontend fetches every view for an outfit
+    and orders them against ``settings.model_image_views``, so adding or renaming a view
+    needs no schema change. ``view`` is therefore free text, not an enum.
+
+    ``model`` is the only generation metadata kept: ``settings.image_model_tryon``
+    changes over time, so the model that actually rendered a row cannot be re-derived
+    later. The prompt is reconstructible from the linked clothing rows and is not stored.
+
+    SQLModel derives the table name from the class name (``OutfitImage`` ->
+    ``outfitimage``), so ``__tablename__`` is deliberately not set.
+    """
+
+    __table_args__ = (
+        UniqueConstraint("outfit_id", "view", name="uq_outfitimage_outfit_view"),
+        Index("ix_outfitimage_user_id", "user_id"),
+        Index("ix_outfitimage_outfit_id", "outfit_id"),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: int = Field(foreign_key="user.id")
-    outfit_id: Optional[uuid.UUID] = Field(default=None, foreign_key="outfit.id")
+    # An outfit image with no outfit is a contradiction, so this is NOT NULL.
+    outfit_id: uuid.UUID = Field(foreign_key="outfit.id")
 
-    # Prompt & generation metadata
-    prompt: str
+    view: str
     image_path: str
+    model: str
 
     created_at: datetime.datetime = Field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
@@ -104,6 +124,6 @@ __all__ = [
     "ClothingBase",
     "Outfit",
     "OutfitClothingLink",
-    "GeneratedImage",
+    "OutfitImage",
     "SurpriseOutfit",
 ]
