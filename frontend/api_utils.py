@@ -4,6 +4,7 @@ The frontend talks to the backend exclusively through this module — it must
 never import ``closet_muse.db`` or ``closet_muse.services``.
 """
 
+from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Protocol
 import zipfile
@@ -36,6 +37,18 @@ class NamedBytesIO(BytesIO):
         super().__init__(data)
         self.name = name
         self.type = type
+
+
+@dataclass
+class GeneratedOutfit:
+    """A generated look: the persisted outfit id plus one PNG per model view.
+
+    ``outfit_id`` is ``None`` only if the backend omitted the header, which would
+    mean the outfit was not persisted — the views are still usable for display.
+    """
+
+    outfit_id: str | None
+    views: dict[str, bytes] = field(default_factory=dict)
 
 
 def _post(path: str, **kwargs) -> requests.Response:
@@ -126,6 +139,9 @@ def add_clothing_item(
 
     ``image_tilted`` is the same garment on the three-quarter mannequin; it is
     optional so an item can still be saved with a single perspective.
+
+    ``clothing.mannequin_form`` (when set) is recorded as provenance, so the item
+    can be re-polished or debugged against the form it was generated on.
     """
     # Upload first, then attach the returned filenames to the record.
     filename = upload_image(settings.storage_bucket_clothing, image)
@@ -175,11 +191,16 @@ def clothing_counts(user_id: int) -> dict[str, int]:
     return response.json()
 
 
-def generate_outfit(user_id: int, clothing_ids: list[str]) -> dict[str, bytes] | None:
+def generate_outfit(
+    user_id: int, clothing_ids: list[str]
+) -> "GeneratedOutfit | None":
     """Generate one outfit image per model view for the given clothing IDs.
 
     The backend returns a ZIP archive holding one PNG per model view, so this
-    unpacks it into ``{"left": bytes, "center": bytes, "right": bytes}``.
+    unpacks it into ``{"left": bytes, "center": bytes, "right": bytes}``. The
+    outfit is persisted server-side, and its id comes back in the ``X-Outfit-Id``
+    header (the body is binary, so it cannot carry it).
+
     Returns ``None`` on a failed or empty response.
     """
     response = _post(
@@ -190,11 +211,31 @@ def generate_outfit(user_id: int, clothing_ids: list[str]) -> dict[str, bytes] |
         return None
 
     with zipfile.ZipFile(BytesIO(response.content)) as archive:
-        return {
+        views = {
             name.removesuffix(".png"): archive.read(name)
             for name in archive.namelist()
             if name.endswith(".png")
         }
+    return GeneratedOutfit(
+        outfit_id=response.headers.get("X-Outfit-Id"), views=views
+    )
+
+
+def fetch_outfit_history(user_id: int) -> list[dict]:
+    """List a user's saved outfits, newest first."""
+    response = _get(f"/outfits/{user_id}/history")
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_outfit_images(outfit_id: str) -> list[dict]:
+    """Fetch the persisted renders for one outfit.
+
+    Rows come back unordered; order them against ``settings.model_image_views``.
+    """
+    response = _get(f"/outfits/{outfit_id}/images")
+    response.raise_for_status()
+    return response.json()
 
 
 def upload_avatar(user_id: int, image: FileLike) -> dict:

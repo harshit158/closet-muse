@@ -23,7 +23,7 @@ def main() -> None:
 
         user = User(
             name="Local User",
-            dob=datetime.datetime(1995, 1, 1, tzinfo=datetime.timezone.utc),
+            dob=datetime.date(1995, 1, 1),
         )
         session.add(user)
         session.commit()

@@ -16,7 +16,7 @@ from closet_muse.domain import enums
 
 class UserCreate(SQLModel):
     name: str
-    dob: datetime.datetime
+    dob: datetime.date
 
 
 class ClothingBase(SQLModel):
@@ -27,6 +27,12 @@ class ClothingBase(SQLModel):
     color: Optional[str] = Field(
         default=None,
         description="Primary visible color of the item (standard name)",
+    )
+
+    # The same color as a hex code, for palette rendering, e.g. "#D0B987"
+    color_hex: Optional[str] = Field(
+        default=None,
+        description="Primary visible color of the item as a hex code",
     )
 
     # Key fabric or production material, e.g. "Cotton", "Silk Blend", "Denim"
@@ -61,6 +67,19 @@ class ClothingBase(SQLModel):
         ),
     )
 
+    # How the garment sits on the body, e.g. "Slim", "Oversized", "Relaxed"
+    fit: Optional[str] = Field(
+        default=None,
+        description="How the garment sits on the body (slim, relaxed, oversized, ...)",
+    )
+
+    # Provenance: the mannequin form this item was polished onto. Lets the item
+    # be re-polished or debugged later, since the form is not otherwise recorded.
+    mannequin_form: Optional[str] = Field(
+        default=None,
+        description="Mannequin form the item's polished images were generated on",
+    )
+
     image_path: Optional[str] = None
 
     # Second perspective of the same item: the garment dressed on the
@@ -81,12 +100,15 @@ class ClothingUpdate(SQLModel):
     main_category: Optional[enums.WomenClothingMainCategory] = None
     sub_category: Optional[str] = None
     color: Optional[str] = None
+    color_hex: Optional[str] = None
     material: Optional[enums.Material] = None
     pattern: Optional[enums.Pattern] = None
     brand: Optional[str] = None
     size: Optional[str] = None
     season: Optional[enums.Season] = None
     description: Optional[str] = None
+    fit: Optional[str] = None
+    mannequin_form: Optional[str] = None
 
 
 class ClothingWithImage(BaseModel):

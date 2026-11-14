@@ -326,7 +326,9 @@ class OnboardWardrobe:
         ):
             api_utils.add_clothing_item(
                 user_id=self.user_id,
-                clothing=clothing_item,
+                clothing=clothing_item.model_copy(
+                    update={"mannequin_form": st.session_state.mannequin_form}
+                ),
                 image=st.session_state.clothing_image,
                 image_tilted=st.session_state.clothing_image_tilted,
             )
