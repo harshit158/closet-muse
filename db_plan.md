@@ -3,8 +3,9 @@
 > **Purpose:** a self-contained handoff document. A new Copilot session should be able to
 > read only this file and continue the work without re-deriving the analysis.
 >
-> **Status:** PLAN — Phase 1 implemented and verified (2026-11-11). Phases 2+ not started.
-> **Audit date:** 2026-11-10, revised 2026-11-11.
+> **Status:** PLAN — Phase 1 implemented and verified (2026-11-11). Phase 2 (Alembic)
+> implemented and verified (2026-11-14). Phases 2b+ not started.
+> **Audit date:** 2026-11-10, revised 2026-11-11, revised 2026-11-14 (Alembic adopted).
 
 ---
 
@@ -15,7 +16,7 @@ These were explicitly decided by the user. **Do not revisit them.**
 | Constraint | Detail |
 | --- | --- |
 | **Single-user local** | `user` stays a 1-row seed table. No auth, no email uniqueness, no multi-user planning. `user_id=1` is hardcoded in the frontend. |
-| **NO Alembic** | Alembic was added then removed. The user does not want a migration step on every app start. Use the idempotent-schema approach in Phase 2 instead. See `/memories/repo/schema.md`. |
+| **Alembic owns the schema** | *Reversed 2026-11-14 — this row used to say "NO Alembic".* Alembic with an explicit `make migrate` target; `create_all()` is removed from the lifespan and `seed.py`. Nothing migrates on app start — `make migrate` is a Makefile prerequisite, and on a current DB it is a single `SELECT` against `alembic_version`. See Phase 2. |
 | **`GeneratedImage` → `OutfitImage`** | Rename the table/model. Verified blast radius is 2 references. Table has 0 rows, so DROP + CREATE is safe — no data migration. |
 | **`OutfitImage` has NO ordering column** | `view_order` was proposed and rejected. The frontend fetches all views and decides display order itself. Do not re-add an ordering column. |
 | **`OutfitImage` drops these columns** | `latency_ms`, `seed`, `kind`, `aspect_ratio`, `prompt`, `view_order`. |
@@ -141,7 +142,7 @@ erDiagram
 
 ### Critical
 1. **Orphaned files.** `POST /outfits/generate` calls `storage.save_image(...)` for each of 3 model views and **discards the returned filename**. Result: 47 orphan PNGs in `var/storage/generated/` with zero DB rows. No history, no re-view, no garbage collection.
-2. **`create_all()` cannot add columns.** Every new field currently needs a manual `ALTER TABLE` or `make clean`. This is the #1 friction source and blocks every subsequent phase.
+2. **`create_all()` cannot add columns.** Every new field currently needs a manual `ALTER TABLE` or `make clean`. This is the #1 friction source and blocks every subsequent phase. **Resolved by adopting Alembic** — see Phase 2.
 
 ### Correctness
 3. **No FK enforcement.** SQLite defaults to `PRAGMA foreign_keys=OFF` and nothing turns it on, so all `REFERENCES` clauses are decorative. That's why `delete_clothing_item` hand-deletes link rows.
@@ -182,7 +183,7 @@ erDiagram
 
 ### `OutfitImage` — final shape
 
-**Six columns.** This is settled; do not add back what was removed.
+**Seven columns.** This is settled; do not add back what was removed.
 
 ```mermaid
 erDiagram
@@ -322,7 +323,9 @@ erDiagram
 
 ## 6. Implementation plan
 
-Execute in order. Phases 1–2 are prerequisites for everything else.
+Execute in order. Phase 1 is done. Phase 2 (Alembic scaffold + baseline) is the
+prerequisite for every later phase, because after it the schema is owned by revisions rather
+than `create_all()`.
 
 ### Phase 1 — Engine hardening *(no schema change; unblocks all later phases)* — ✅ DONE
 
@@ -340,34 +343,146 @@ Execute in order. Phases 1–2 are prerequisites for everything else.
 `PRAGMA foreign_key_check` is clean on the existing 14-row DB; the create → read → delete
 API round-trip still works with the new rollback in place.
 
-### Phase 2 — Idempotent schema evolution *(the enabler for every later phase)*
+### Phase 2 — Alembic schema ownership *(the enabler for every later phase)* — ✅ DONE
+
+**Decision 2026-11-14.** Alembic replaces the previously planned `ensure_columns()`
+helper, which is now **cancelled and is not written at all**. The original objection was
+*"don't migrate on every app start"* — that constraint is preserved: **nothing runs inside
+the FastAPI lifespan.** `alembic upgrade head` is an explicit `make migrate` target and a
+Makefile prerequisite of `backend` / `seed` / `dev`. This formally reverses the "NO
+Alembic" constraint that used to sit in §1.
+
+#### 2a — Scaffold
+
+**Dependency:** `uv add alembic` (currently absent from `pyproject.toml` and `uv.lock`).
+
+**New:** `alembic.ini`
+- `script_location = migrations`.
+- `sqlalchemy.url` left empty — `env.py` resolves it from `settings.sqlite_path` so there is
+  exactly one source of truth for the DB location.
+
+**New:** `migrations/env.py`
+- `from closet_muse.db import models  # noqa: F401` before setting
+  `target_metadata = SQLModel.metadata`, so every table registers.
+- Build the URL from `settings.sqlite_path`, **not** from `alembic.ini`.
+- **Do not import `closet_muse.db.engine`.** Its `_sqlite_pragmas` connect listener sets
+  `PRAGMA foreign_keys=ON`, and batch-mode table rebuilds (create-copy-drop-rename) fail
+  when FKs are enforced mid-rebuild. Alembic must build its own plain engine.
+- `context.configure(..., render_as_batch=True, compare_type=True)`.
+
+**New:** `scripts/migrate.py` — the adoption shim behind `make migrate`.
+- If `alembic_version` is absent **and** the `user` table exists → `alembic stamp 0001`
+  first, then `alembic upgrade head`.
+- Otherwise just `alembic upgrade head`.
+- This is what lets the existing 14-row `var/closet_muse.db` (8 tables, no
+  `alembic_version`) join the migration chain instead of failing with
+  `table user already exists`.
+
+**`Makefile`**
+- `migrate:` → `uv run python scripts/migrate.py`
+- `migration:` → `uv run alembic revision --autogenerate -m "$(m)"`
+- `downgrade:` → `uv run alembic downgrade -1`
+- `backend`, `seed`, `dev` gain a `migrate` prerequisite.
+- `clean` is unchanged (`rm -f var/*.db`); a fresh DB now needs `make migrate` after it.
+
+#### 2b — Revision map (one revision per plan phase)
+
+> **Renumbered 2026-11-14 after implementation.** Revision `0002` was consumed by a
+> length-normalization fix for a pre-existing `VARCHAR(16)` on `clothing.main_category`
+> (see below), so every planned revision shifted up by one. `0001` and `0002` exist on disk;
+> `0003`–`0006` are still to be written.
+
+| Revision | Plan phase | Contents |
+| --- | --- | --- |
+| `0001_baseline` ✅ | 2 | The 8 tables exactly as `create_all()` built them. Autogenerated against an empty DB, then hand-adjusted: `import sqlmodel` added (autogenerate omits it). |
+| `0002_normalize_clothing_main_category_length` ✅ | 2 | **Unplanned — discovered during verification.** The local DB had `main_category VARCHAR(16)` from an older enum definition while the model declares 11; SQLite ignores the length, but it made `alembic check` report permanent drift. Batch-altered to `VARCHAR(11)`. No-op on DBs created from `0001`. |
+| `0003_outfitimage` | 2b | `drop_table("generatedimage")` + `create_table("outfitimage")` with the settled 7-column shape, `UNIQUE(outfit_id, view)`, indexes on `user_id` / `outfit_id`. Drop+create, not rename — 0 rows, and the column set changes too much for a rename to be worth it. |
+| `0004_columns_indexes_cascade` | 3 + 5 | `clothing` +`color_hex`/`fit`/`mannequin_form`/`is_archived`/`updated_at`; `outfit` +`feedback`/`updated_at` and `occasion`/`season` enum retype; `user` +`updated_at` and `dob`→`date`; `avatarimage` +`created_at`; `outfitclothinglink` batch-recreated with `ondelete="CASCADE"`; every index from Phase 3. |
+| `0005_drop_dead_tables` | 6 | `drop_table("surpriseoutfit")`, `drop_table("bodyprofile")`. |
+| `0006_image_tables` | 7 | Create `clothing_image` + `clothing_source_image`, **backfill inside the revision**, then batch-drop `clothing.image_path` / `image_path_tilted`. |
+
+> **Why `0004` merges Phase 3 and Phase 5:** both are pure column/index work on the same
+> tables, and splitting them would produce two revisions that touch `clothing` back to back
+> for no review benefit. Phase 4 (wiring persistence) stays in application code — it needs
+> no DDL.
+
+**Data hazards inside `0004`:**
+- `UPDATE user SET dob = date(dob)` must run **before** the `dob` batch alter. The seeded row
+  holds `'1995-01-01 00:00:00.000000'`, and SQLAlchemy's SQLite `DATE` result processor will
+  not parse the trailing time.
+- `clothing.updated_at` (14 rows), `clothing.is_archived`, `user.updated_at`, and
+  `avatarimage.created_at` need a `server_default` in the `add_column` call, or must be
+  nullable. Check `SELECT count(*) FROM avatarimage` first — if it is empty, a plain
+  `NOT NULL` add is fine.
+- `compare_type=True` and enum columns: SQLite stores `str` and `Enum` identically as
+  `VARCHAR`, so the `occasion`/`season` retype may autogenerate as a no-op or as a spurious
+  diff depending on whether a `CHECK` constraint exists. Confirm with
+  `sqlite3 var/closet_muse.db ".schema clothing"` before writing the revision.
+
+#### 2c — Remove `create_all()`
 
 **File:** `src/closet_muse/db/engine.py`
-- Add `ensure_columns()`: for each table in `SQLModel.metadata.sorted_tables`, read `PRAGMA table_info(<table>)`, diff against the model's columns, and issue `ALTER TABLE ... ADD COLUMN` for anything missing.
-- Derive the SQLite type from the SQLModel column type; emit `NULL`-able adds only (SQLite cannot add `NOT NULL` without a default).
-- Call it from `create_db_and_tables()` immediately after `SQLModel.metadata.create_all(engine)`.
-- Also add a `DROP TABLE IF EXISTS` cleanup list here (used in Phase 6).
+- Delete `create_db_and_tables()` and its docstring reference to `ensure_columns()`.
+- Keep `engine`, `get_session()`, and `_sqlite_pragmas` — the app still wants
+  `foreign_keys=ON` / WAL / `busy_timeout` at runtime.
 
-This **replaces the manual `ALTER TABLE` ritual** documented in the README and `/memories/repo/schema.md`, and respects the no-Alembic decision.
+**File:** `src/closet_muse/api/main.py`
+- Remove the `lifespan` context manager and the `create_db_and_tables` import — line 14 is
+  its only caller in the API.
 
-### Phase 2b — Rename `generatedimage` → `outfitimage`
+**File:** `src/closet_muse/seed.py`
+- Remove the `create_db_and_tables()` call (line 15) and its import.
+
+> **Startup guard (recommended):** read `alembic_version` on startup and raise a clear
+> "run `make migrate`" error if it is missing or behind head. This converts a confusing
+> `no such table: user` into an actionable message. It is a *read*, not a migration — the
+> no-migration-on-startup promise still holds.
+
+**Implemented 2026-11-14.** Alembic 1.20.1. `alembic.ini`, `migrations/env.py`,
+`migrations/script.py.mako`, `migrations/versions/0001_baseline.py`, `0002_normalize_…`,
+and `scripts/migrate.py` are in place. `create_db_and_tables()` is deleted; the `lifespan`
+hook is gone from `api/main.py`; `seed.py` no longer issues DDL. Makefile gained `migrate`,
+`migration`, `downgrade`, with `backend`/`seed` depending on `migrate`. The startup guard
+was **not** added (optional).
+
+Verified: the existing 14-row DB was adopted by `make migrate` via `stamp 0001` (no rows
+lost); a second run is a no-op; a fresh DB migrates and seeds cleanly; `alembic check`
+reports no drift after `0002`; downgrade/upgrade round-trips with rows intact; the backend
+boots with no DDL and serves `/clothing/1`; runtime PRAGMAs remain `1` / `wal` / `5000`.
+
+Two gotchas discovered during implementation:
+
+- **`migrations/script.py.mako` must use `${repr(up_revision)}`.** The stock template's
+  `"${up_revision}"` renders a missing parent as the *string* `"None"`, which breaks
+  Alembic's revision map with `KeyError: 'None'`.
+- **Autogenerate omits `import sqlmodel`** even though it emits
+  `sqlmodel.sql.sqltypes.AutoString()`. Add the import by hand to any autogenerated
+  revision.
+
+### Phase 2b — Rename `generatedimage` → `outfitimage` *(revision `0003`)*
 
 **File:** `src/closet_muse/db/models.py`
 - Rename `class GeneratedImage` → `class OutfitImage`.
 - Update the `__all__` list.
 - `get_generated_image()` in `api/routers/outfits.py` is a *route handler name*, not the model — it is unaffected by the rename. Leave it (or rename it to `get_outfit_image` for clarity).
 
-Table has 0 rows, so `DROP TABLE IF EXISTS generatedimage` in the Phase 6 cleanup list is sufficient.
+The table has 0 rows, so revision `0003` does `drop_table("generatedimage")` +
+`create_table("outfitimage")` rather than a rename — the column set changes too much for a
+rename to be worth the extra steps.
 
-### Phase 3 — Constraints & indexes *(depends on 1, 2)*
+### Phase 3 — Constraints & indexes *(revision `0004`)*
 
 **File:** `src/closet_muse/db/models.py`
 - Add `Index` declarations: `clothing(user_id)`, `clothing(user_id, main_category)`, `outfit(user_id)`, `outfitimage(user_id)`, `outfitimage(outfit_id)`, `avatarimage(user_id)`, `outfitclothinglink(clothing_item_id)`.
 - Add `ondelete="CASCADE"` to `outfitclothinglink`'s FKs now that enforcement is on.
 
-> **Caveat:** indexes and constraints **cannot** be added by `ALTER TABLE` on an existing SQLite table. Either create them with explicit `CREATE INDEX IF NOT EXISTS` statements in `create_db_and_tables()`, or accept that they only appear after a fresh DB (`make clean`). Recommend the former — it keeps the no-migration promise.
+> **No caveat any more.** The old plan had to choose between hand-written `CREATE INDEX IF
+> NOT EXISTS` statements and "indexes only appear after `make clean`". Alembic makes this a
+> non-issue: `op.create_index(...)` emits plain `CREATE INDEX`, and `op.batch_alter_table`
+> handles the `ondelete="CASCADE"` change via a table rebuild. Both land in revision
+> `0003`.
 
-### Phase 4 — Wire up outfit persistence *(depends on 1, 2, 3)*
+### Phase 4 — Wire up outfit persistence *(needs revision `0003`; no DDL of its own)*
 
 **File:** `src/closet_muse/api/routers/outfits.py` — `generate_outfit()`
 - Before generating, create an `Outfit` row (`user_id`, `created_by_ai=True`).
@@ -382,12 +497,13 @@ Table has 0 rows, so `DROP TABLE IF EXISTS generatedimage` in the Phase 6 cleanu
 
 > **Routing gotcha:** `GET /outfits/{outfit_id}` already exists. Registering `/outfits/{user_id}/history` is fine (different path shape), but keep `/outfits/image/{filename}` above `/outfits/{outfit_id}` as it is today, or FastAPI will try to parse `image` as a UUID.
 
-### Phase 5 — Column extensions *(depends on 2)*
+### Phase 5 — Column extensions *(revision `0004`)*
 
 **`clothing`:** add `color_hex`, `fit`, `mannequin_form`, `is_archived`, `updated_at`.
 - Populate `mannequin_form` from the onboarding form so an item can be re-polished or debugged later.
 - **No `garment_type` column.** The onboarding form's "garment type" *is* `main_category` (it is the `WomenClothingMainCategory` selectbox), so storing it again would duplicate an existing column. `main_category` is the single source of truth.
-- The two image columns (`image_path`, `image_path_tilted`) are **not** touched here — Phase 7 moves them into `clothing_image`.
+- The two image columns (`image_path`, `image_path_tilted`) are **not** touched here — revision
+  `0005` backfills them into `clothing_image` and then drops them.
 
 **`outfit`:** retype `occasion` / `season` to `enums.Occasion` / `enums.Season`; add `feedback`, `updated_at`.
 
@@ -395,13 +511,14 @@ Table has 0 rows, so `DROP TABLE IF EXISTS generatedimage` in the Phase 6 cleanu
 
 **`user`:** retype `dob` to `date`; add `updated_at`.
 
-### Phase 6 — Drop dead tables + storage GC *(depends on 3, 4)*
+### Phase 6 — Drop dead tables + storage GC *(needs revision `0004`)*
 
 **File:** `src/closet_muse/db/models.py`
 - Remove `SurpriseOutfit` and `BodyProfile` (classes + `__all__`).
 
-**File:** `src/closet_muse/db/engine.py`
-- Add to the cleanup list: `DROP TABLE IF EXISTS surpriseoutfit`, `bodyprofile`, `generatedimage`.
+**File:** `migrations/versions/0005_drop_dead_tables.py`
+- `drop_table("surpriseoutfit")` and `drop_table("bodyprofile")`. There is no cleanup list
+  in `engine.py` any more — `generatedimage` is already dropped by revision `0003`.
 
 **File:** `src/closet_muse/api/routers/users.py`
 - Delete the unreachable `BodyProfile` sync block in `upload_avatar`.
@@ -414,7 +531,7 @@ Table has 0 rows, so `DROP TABLE IF EXISTS generatedimage` in the Phase 6 cleanu
 - Delete them. This reclaims the 47 existing orphans.
 - Use `--dry-run` by default.
 
-### Phase 7 — Clothing image tables *(depends on 1, 2, 3)*
+### Phase 7 — Clothing image tables *(revision `0006`)*
 
 Two new child tables. **Not one table with a `kind` discriminator** — the two kinds have
 different shapes (`view` vs `position`) and different lifecycles, and a discriminator would
@@ -494,16 +611,25 @@ Replaces the two columns `clothing.image_path` (front) and `clothing.image_path_
 - Pass `source_images=list(st.session_state.onboard_uploader)` on save. `_upload_signature()`
   already guarantees the previews match the current uploads, so the photos are still valid.
 
-#### 7f — Backfill the existing rows
+#### 7f — Backfill + drop the legacy columns *(inside revision `0006`)*
 
-**New:** `scripts/migrate_clothing_images.py` (or a `make migrate-images` target)
-- For every `clothing` row with a non-null `image_path`, insert a `clothing_image` row with
-  `view="front"`; likewise `image_path_tilted` → `view="tilted"`.
-- Idempotent: skip a `(clothing_id, view)` pair that already exists.
-- **Manual target, not called from `create_db_and_tables()`** — consistent with the
-  no-migration-on-startup constraint.
-- The legacy columns **stay in the table**, marked deprecated. SQLite cannot drop a column
-  without a table rebuild, and `ensure_columns()` only ever adds, so nothing fights this.
+Revision `0006_image_tables` does all four steps in order, in one atomic migration:
+
+1. `create_table("clothing_image")` — `UNIQUE(clothing_id, view)`, index on `clothing_id`.
+2. `create_table("clothing_source_image")` — index on `clothing_id`.
+3. Backfill: `INSERT INTO clothing_image (id, clothing_id, view, image_path, created_at)`
+   `SELECT ... FROM clothing WHERE image_path IS NOT NULL` with `view='front'`; the same for
+   `image_path_tilted` → `view='tilted'`.
+4. `batch_alter_table("clothing")` dropping `image_path` and `image_path_tilted`.
+
+Doing the backfill **inside** the revision removes the ordering footgun the old
+`make migrate-images` target had: the columns cannot be dropped before the data is copied,
+and there is no way to run the backfill after the columns are gone. `scripts/migrate_clothing_images.py`
+and the `make migrate-images` target are **cancelled**.
+
+Batch mode is what makes step 4 possible at all — raw SQLite cannot `DROP COLUMN`, so the
+old plan left the two columns in place forever. Alembic's `batch_alter_table` performs the
+create-copy-drop-rename rebuild, so the table ends up matching `Clothing` exactly.
 
 #### 7g — GC
 
@@ -512,8 +638,8 @@ Replaces the two columns `clothing.image_path` (front) and `clothing.image_path_
   `clothing_source_image.image_path`; scan the new `clothing_source` bucket too.
 
 ### Phase 8 — Docs
-- Update the "Database schema" section of `README.md`: remove the manual `ALTER TABLE` instructions, document `ensure_columns()`, the enum-name storage convention, and the FK/WAL settings.
-- Document the two image tables, the `clothing_source` bucket, and the deprecated legacy columns.
+- Update the "Database schema" section of `README.md`: replace the manual `ALTER TABLE` block with the `make migrate` / `make migration` / `make downgrade` workflow, and document the enum-name storage convention and the FK/WAL settings.
+- Document the two image tables and the `clothing_source` bucket. There are no "deprecated legacy columns" to document — revision `0006` drops them.
 - Update `/memories/repo/schema.md` with the same.
 - Update `/memories/repo/categories.md` if the `view` vocabulary changes (see open questions).
 
@@ -524,7 +650,13 @@ Replaces the two columns `clothing.image_path` (front) and `clothing.image_path_
 | File | Change |
 | --- | --- |
 | `src/closet_muse/db/models.py` | Rename `generatedimage`→`outfitimage`; drop `SurpriseOutfit`, `BodyProfile`; add `ClothingImage` + `ClothingSourceImage`; new columns; indexes; CASCADE |
-| `src/closet_muse/db/engine.py` | PRAGMAs; `ensure_columns()`; `CREATE INDEX IF NOT EXISTS`; `DROP TABLE` cleanup |
+| `src/closet_muse/db/engine.py` | PRAGMAs stay; **delete `create_db_and_tables()`** — Alembic owns the schema |
+| `src/closet_muse/api/main.py` | Remove `lifespan` + the `create_db_and_tables` import; optional `alembic_version` startup guard |
+| `src/closet_muse/seed.py` | Remove the `create_db_and_tables()` call |
+| `alembic.ini` | NEW — `script_location = migrations`, URL resolved in `env.py` |
+| `migrations/env.py` | NEW — `target_metadata = SQLModel.metadata`, `render_as_batch=True`, `compare_type=True`, plain engine (no FK PRAGMA) |
+| `migrations/versions/0001_baseline.py`, `0002_normalize_…` (done); `0003_outfitimage.py` … `0006_image_tables.py` (to write) | One revision per plan phase |
+| `scripts/migrate.py` | NEW — `alembic stamp 0001` adoption shim, then `upgrade head` |
 | `src/closet_muse/api/deps.py` | `rollback()` on error |
 | `src/closet_muse/api/routers/outfits.py` | **Core fix** — persist `Outfit` + links + `OutfitImage`; new history endpoints; read polished images from `clothing_image` |
 | `src/closet_muse/api/routers/users.py` | Remove dead `BodyProfile` sync; order avatars by `created_at` |
@@ -535,29 +667,34 @@ Replaces the two columns `clothing.image_path` (front) and `clothing.image_path_
 | `frontend/api_utils.py` | Surface `outfit_id` from `generate_outfit`; add history fetchers; upload source photos; new image fetchers |
 | `frontend/views/generate_outfit.py` | Consume persisted views; sort by known-order list; remove the `pass` stub |
 | `frontend/views/onboard_wardrobe.py` | Pass the uploaded source photos on save |
-| `scripts/migrate_clothing_images.py` | NEW — backfill `clothing_image` from the legacy columns |
 | `scripts/gc_storage.py` | NEW — orphan cleanup, including both new tables |
-| `Makefile` | Add `gc` and `migrate-images` targets |
+| `Makefile` | Add `migrate`, `migration`, `downgrade`, and `gc` targets; `backend`/`seed`/`dev` depend on `migrate` |
 | `README.md` | Update schema docs |
 
 ---
 
 ## 8. Verification
 
-1. `make clean && make seed && make backend` — all tables create from scratch with the new columns and indexes.
-2. **Regression test for the old pain:** add a throwaway field to `Clothing`, restart the backend *without* `make clean`, and confirm `ensure_columns()` adds it automatically.
-3. `sqlite3 var/closet_muse.db "PRAGMA foreign_keys;"` → expect `1`. `PRAGMA journal_mode;` → expect `wal`.
-4. `sqlite3 var/closet_muse.db ".indexes clothing"` → expect the new indexes.
-5. Generate an outfit in the UI, then verify: one `outfit` row, N `outfitclothinglink` rows, 3 `outfitimage` rows with distinct `view` values, and every filename in `var/storage/generated/` has a DB row.
-6. Delete a clothing item belonging to a saved outfit → the link row disappears via CASCADE (no manual cleanup).
-7. Run the GC script → deletes only pre-existing orphans, leaves newly-persisted files alone.
-8. `sqlite3 var/closet_muse.db ".tables"` → `surpriseoutfit`, `bodyprofile`, `generatedimage` are gone; `clothing_image` and `clothing_source_image` exist.
-9. **Image tables:** onboard an item with 3 photos → 1 `clothing_image` (`front`) + 1 (`tilted`) + 3 `clothing_source_image` rows with `position` 0/1/2, and 3 files in `var/storage/clothing_source/`.
-10. **Backward compatibility:** `GET /clothing/{user_id}` still returns `image_path` and `image_path_tilted` (computed), so the gallery, the selection tray and the edit dialog render unchanged.
-11. **Try-on still works:** generate an outfit → the request receives both polished views read from `clothing_image`.
-12. **Cascade:** delete the item → both child tables' rows are gone and every file (polished + source) is deleted.
-13. **Backfill:** run `make migrate-images` on the existing DB → the 15 files in `var/storage/clothing/` become `clothing_image` rows; re-running is a no-op.
-14. **Extraction unchanged:** `POST /images/attributes/` response contains no image keys.
+1. `make clean && make migrate && make seed && make backend` — all tables create from scratch with the new columns and indexes, plus an `alembic_version` row.
+2. **Legacy adoption:** back up `var/closet_muse.db`, run `make migrate` → `alembic_version` is stamped `0001` and no `table user already exists` error appears; the 14 clothing rows survive.
+3. **Idempotency:** `make migrate` twice in a row → the second run is a no-op.
+4. **Round-trip:** `make downgrade` then `make migrate` on each revision → no errors.
+5. **Regression test for the old pain:** add a throwaway field to `Clothing`, run `make migration m="tmp"` + `make migrate`, and confirm the column appears without `make clean`.
+6. **Startup guard:** `make backend` against a DB that was never migrated → a "run `make migrate`" message, not `no such table: user`.
+7. **FK scope:** `PRAGMA foreign_keys` → `1` on the app engine, while Alembic's batch rebuilds still succeed (proves the two engines are separate).
+8. `sqlite3 var/closet_muse.db "PRAGMA foreign_keys;"` → expect `1`. `PRAGMA journal_mode;` → expect `wal`.
+9. `sqlite3 var/closet_muse.db ".indexes clothing"` → expect the new indexes.
+10. `sqlite3 var/closet_muse.db "SELECT dob FROM user;"` → `1995-01-01`, no time component.
+11. Generate an outfit in the UI, then verify: one `outfit` row, N `outfitclothinglink` rows, 3 `outfitimage` rows with distinct `view` values, and every filename in `var/storage/generated/` has a DB row.
+12. Delete a clothing item belonging to a saved outfit → the link row disappears via CASCADE (no manual cleanup).
+13. Run the GC script → deletes only pre-existing orphans, leaves newly-persisted files alone.
+14. `sqlite3 var/closet_muse.db ".tables"` → `surpriseoutfit`, `bodyprofile`, `generatedimage` are gone; `clothing_image` and `clothing_source_image` exist.
+15. **Image tables:** onboard an item with 3 photos → 1 `clothing_image` (`front`) + 1 (`tilted`) + 3 `clothing_source_image` rows with `position` 0/1/2, and 3 files in `var/storage/clothing_source/`.
+16. **Backward compatibility:** `GET /clothing/{user_id}` still returns `image_path` and `image_path_tilted` (computed), so the gallery, the selection tray and the edit dialog render unchanged.
+17. **Try-on still works:** generate an outfit → the request receives both polished views read from `clothing_image`.
+18. **Cascade:** delete the item → both child tables' rows are gone and every file (polished + source) is deleted.
+19. **Backfill + drop:** `make migrate` on the existing DB → the non-null legacy paths in `var/storage/clothing/` become `clothing_image` rows, and `PRAGMA table_info(clothing)` no longer lists `image_path` / `image_path_tilted`.
+20. **Extraction unchanged:** `POST /images/attributes/` response contains no image keys.
 
 ---
 
@@ -578,7 +715,10 @@ Recorded, not yet answered. Proceed with the recommendation unless the user says
    They exist so the four existing readers (`edit_collection.py:90`, `generate_outfit.py:133,157`, `outfits.py:39,45`) need no changes. **Recommendation: keep them permanently** — they are a cheap, stable convenience for the two most common lookups, and removing them later would be a breaking API change for no gain. The alternative is to drop them once the frontend reads `images[]` directly.
 
 5. **Should the backfill run automatically?**
-   **Recommendation: no** — keep it a manual `make migrate-images` target, consistent with the no-migration-on-startup constraint. Calling it from `create_db_and_tables()` would reintroduce exactly the startup migration step the user rejected.
+   **Resolved 2026-11-14: yes, but only inside a migration.** The backfill is step 3 of
+   revision `0006`, which runs when you invoke `make migrate` — never at app startup. This is
+   strictly better than the old manual `make migrate-images` target, because the column drop
+   in step 4 cannot happen before the data is copied.
 
 ---
 
@@ -586,7 +726,7 @@ Recorded, not yet answered. Proceed with the recommendation unless the user says
 
 Multi-user/auth, Postgres migration, soft-delete UI (the `is_archived` column is added but not wired), any analytics/warehouse layer, and persisting polish output as `OutfitImage`.
 
-Also out of scope for Phase 7: a re-polish UI (re-running polish from the stored source photos — the data now exists, the feature does not), and physically dropping the deprecated `clothing.image_path` / `image_path_tilted` columns (SQLite needs a table rebuild; they are harmless once nothing reads them).
+Also out of scope for Phase 7: a re-polish UI (re-running polish from the stored source photos — the data now exists, the feature does not). Dropping the legacy `clothing.image_path` / `image_path_tilted` columns **is now in scope** — batch mode makes the table rebuild safe, so revision `0006` removes them.
 
 ---
 
@@ -594,7 +734,9 @@ Also out of scope for Phase 7: a re-polish UI (re-running polish from the stored
 
 Carried over from `/memories/repo/schema.md`:
 
-- **`create_all()` does NOT add columns** to an existing table. Phase 2 exists to fix this.
+- **`create_all()` does NOT add columns** to an existing table. Phase 2 replaced it with Alembic for exactly this reason.
+- **Alembic's engine must not enable `PRAGMA foreign_keys`.** Batch-mode rebuilds fail when FKs are enforced mid-rebuild, so `migrations/env.py` builds its own engine and never imports `closet_muse.db.engine`.
+- **`render_as_batch=True` is mandatory** for this project — every non-additive SQLite change (dropping a column, changing a constraint) needs the create-copy-drop-rename rebuild.
 - **SQLite stores UUID PKs WITHOUT dashes** (e.g. `aec9d236a56846bebd0cdb77c8f4874a`). Raw `sqlite3` queries must use the dashless form; the API accepts dashed.
 - **SQLite FK enforcement is OFF by default**, which is why manual link cleanup exists. Phase 1 turns it on.
 - **Streamlit/settings hot-reload:** `settings.py` is imported at module load, so editing it does not hot-reload in a running Streamlit process. Restart `make frontend` after changing settings.
