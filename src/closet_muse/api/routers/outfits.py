@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from closet_muse.api.deps import SessionDep
 from closet_muse.db import models
 from closet_muse.domain.schemas import ClothingBase, ClothingWithImage, OutfitRequest
-from closet_muse.services import image_generation, storage
+from closet_muse.services import credits, image_generation, storage
 from closet_muse.settings import settings
 
 router = APIRouter(prefix="/outfits", tags=["outfits"])
@@ -82,12 +82,15 @@ def _persist_outfit(
     items: list[models.Clothing],
     views: dict[str, bytes],
     session: Session,
-) -> models.Outfit:
-    """Write the outfit, its garment links, and one image row per view.
+) -> tuple[models.Outfit, int]:
+    """Write the outfit, its garment links, one image row per view, and the spend.
 
     The whole write is one transaction: if any step fails, the rows are rolled back
     and the files already written are removed, so a failed generation never leaves a
-    half-written outfit (or orphaned PNGs) behind.
+    half-written outfit (or orphaned PNGs) behind. The credit deduction is part of the
+    same transaction, so a user is never charged for an outfit that was not stored.
+
+    Returns the outfit and the balance remaining after the spend.
     """
     outfit = models.Outfit(user_id=user_id, created_by_ai=True)
     session.add(outfit)
@@ -117,6 +120,15 @@ def _persist_outfit(
                     model=settings.image_model_tryon,
                 )
             )
+        # Charged last, so the ledger row can reference the outfit it paid for. A
+        # failure here rolls back the outfit and deletes the PNGs above.
+        balance = credits.spend(
+            session,
+            user_id,
+            credits.CREDIT_COST_OUTFIT,
+            credits.REASON_OUTFIT_GENERATION,
+            outfit_id=outfit.id,
+        )
         session.commit()
     except Exception:
         session.rollback()
@@ -125,7 +137,7 @@ def _persist_outfit(
         raise
 
     session.refresh(outfit)
-    return outfit
+    return outfit, balance
 
 
 @router.post("/generate/{user_id}")
@@ -141,7 +153,27 @@ def generate_outfit(
     The outfit is persisted before the response is built: one ``outfit`` row, one
     ``outfitclothinglink`` row per garment, and one ``outfitimage`` row per view. Its
     id is returned in the ``X-Outfit-Id`` header, since the body is a binary ZIP.
+
+    Generation costs :data:`credits.CREDIT_COST_OUTFIT` credits. The balance is checked
+    **before** the paid API calls, so an empty wallet fails fast with ``402`` instead of
+    spending real money on images that cannot be saved. The remaining balance comes back
+    in the ``X-Credits-Remaining`` header.
     """
+    # Fail before any paid work. The authoritative check is the conditional UPDATE in
+    # ``credits.spend``; this one only avoids paying for images we cannot charge for.
+    try:
+        balance = credits.get_balance(session, user_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    if balance < credits.CREDIT_COST_OUTFIT:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Not enough credits: {balance} remaining, "
+                f"{credits.CREDIT_COST_OUTFIT} required."
+            ),
+        )
+
     selections, items = _load_selections(user_id, request.clothing_ids, session)
 
     # One try-on per model view; fall back to the single subject image when no
@@ -156,7 +188,11 @@ def generate_outfit(
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
-    outfit = _persist_outfit(user_id, items, views, session)
+    try:
+        outfit, remaining = _persist_outfit(user_id, items, views, session)
+    except credits.InsufficientCredits as exc:
+        # The balance changed between the pre-flight check and the spend.
+        raise HTTPException(status_code=402, detail=str(exc))
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -165,7 +201,10 @@ def generate_outfit(
     return Response(
         content=buffer.getvalue(),
         media_type="application/zip",
-        headers={"X-Outfit-Id": str(outfit.id)},
+        headers={
+            "X-Outfit-Id": str(outfit.id),
+            "X-Credits-Remaining": str(remaining),
+        },
     )
 
 

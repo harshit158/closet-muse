@@ -7,7 +7,7 @@ from sqlmodel import select
 from closet_muse.api.deps import SessionDep
 from closet_muse.db import models
 from closet_muse.domain.schemas import UserCreate
-from closet_muse.services import storage
+from closet_muse.services import credits, storage
 from closet_muse.settings import settings
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -22,8 +22,18 @@ def _get_user_or_404(user_id: int, session: SessionDep) -> models.User:
 
 @router.post("/")
 def create_user(user: UserCreate, session: SessionDep) -> models.User:
+    """Create a user and grant the starting credits.
+
+    The grant goes through ``credits.grant`` rather than a column default so the
+    opening balance is recorded in the ledger, keeping ``sum(delta) == credits``.
+    """
     db_user = models.User(**user.model_dump())
     session.add(db_user)
+    # Assigns db_user.id so the ledger row can reference it.
+    session.flush()
+    credits.grant(
+        session, db_user.id, credits.INITIAL_GRANT, credits.REASON_INITIAL_GRANT
+    )
     session.commit()
     session.refresh(db_user)
     return db_user

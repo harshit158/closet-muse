@@ -45,10 +45,23 @@ class GeneratedOutfit:
 
     ``outfit_id`` is ``None`` only if the backend omitted the header, which would
     mean the outfit was not persisted — the views are still usable for display.
+
+    ``credits_remaining`` is the balance after the spend, read from the
+    ``X-Credits-Remaining`` header. ``None`` when the backend did not report it, so a
+    caller can tell "unknown" apart from "zero".
     """
 
     outfit_id: str | None
     views: dict[str, bytes] = field(default_factory=dict)
+    credits_remaining: int | None = None
+
+
+class InsufficientCreditsError(Exception):
+    """Raised when the backend refuses a generation because the balance is too low."""
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
 
 
 def _post(path: str, **kwargs) -> requests.Response:
@@ -230,14 +243,24 @@ def generate_outfit(
     The backend returns a ZIP archive holding one PNG per model view, so this
     unpacks it into ``{"left": bytes, "center": bytes, "right": bytes}``. The
     outfit is persisted server-side, and its id comes back in the ``X-Outfit-Id``
-    header (the body is binary, so it cannot carry it).
+    header (the body is binary, so it cannot carry it). The balance left after the
+    spend comes back in ``X-Credits-Remaining``.
 
-    Returns ``None`` on a failed or empty response.
+    Raises :class:`InsufficientCreditsError` when the backend answers ``402``, so the
+    view can show a specific message instead of a generic failure. Returns ``None`` on
+    any other failed or empty response.
     """
     response = _post(
         f"/outfits/generate/{user_id}",
         json={"clothing_ids": clothing_ids},
     )
+    if response.status_code == 402:
+        detail = "Not enough credits to generate an outfit."
+        try:
+            detail = response.json().get("detail", detail)
+        except ValueError:
+            pass
+        raise InsufficientCreditsError(detail)
     if response.status_code != 200 or not response.content:
         return None
 
@@ -247,8 +270,12 @@ def generate_outfit(
             for name in archive.namelist()
             if name.endswith(".png")
         }
+
+    remaining = response.headers.get("X-Credits-Remaining")
     return GeneratedOutfit(
-        outfit_id=response.headers.get("X-Outfit-Id"), views=views
+        outfit_id=response.headers.get("X-Outfit-Id"),
+        views=views,
+        credits_remaining=int(remaining) if remaining is not None else None,
     )
 
 
@@ -284,3 +311,10 @@ def fetch_avatar(user_id: int) -> bytes | None:
         return None
     response.raise_for_status()
     return response.content
+
+
+def fetch_user(user_id: int) -> dict:
+    """Fetch a user record, including the current ``credits`` balance."""
+    response = _get(f"/users/{user_id}")
+    response.raise_for_status()
+    return response.json()

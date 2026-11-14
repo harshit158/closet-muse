@@ -225,12 +225,25 @@ class OutfitGenerator:
 
     def display_preview(self) -> None:
         """Display generation controls."""
+        # ``None`` means the balance is unknown (the fetch failed), so the button stays
+        # enabled and the backend remains the authority.
+        credits = st.session_state.get("credits")
+        out_of_credits = credits is not None and credits <= 0
+
         with st.container(horizontal=True):
-            if st.button("Generate", width="stretch", type="primary"):
+            if st.button(
+                "Generate",
+                width="stretch",
+                type="primary",
+                disabled=out_of_credits,
+            ):
                 self.generate_outfit()
 
             if st.button("Surprise Me", width="stretch"):
                 self.generate_surprise_outfit()
+
+        if out_of_credits:
+            st.caption("You're out of credits. Top up to generate more looks.")
 
     def generate_outfit(self) -> None:
         """Generate one look per model view from the selected items."""
@@ -241,11 +254,24 @@ class OutfitGenerator:
             st.warning("Select at least one clothing item first.")
             return
 
-        with st.spinner("Generating your looks..."):
-            result = api_utils.generate_outfit(self.user_id, clothing_ids)
+        try:
+            with st.spinner("Generating your looks..."):
+                result = api_utils.generate_outfit(self.user_id, clothing_ids)
+        except api_utils.InsufficientCreditsError as exc:
+            # The backend is the authority on the balance, so trust its answer over the
+            # cached value and re-render the hero with the truth.
+            st.session_state.credits = 0
+            st.error(exc.detail)
+            return
+
         if result is None or not result.views:
             st.error("Failed to generate outfit.")
             return
+
+        # The backend reports the balance after the spend; keep the hero in sync
+        # without a second round-trip.
+        if result.credits_remaining is not None:
+            st.session_state.credits = result.credits_remaining
 
         # Downscale each look once here, so the carousel arrows never re-encode
         # the full-size PNGs on a rerun.

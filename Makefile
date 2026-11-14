@@ -1,4 +1,4 @@
-.PHONY: install migrate migration downgrade backend frontend dev seed mannequins model gc clean
+.PHONY: install migrate migration downgrade backend frontend dev seed mannequins model gc credits clean
 
 VENV := .venv
 UVICORN := $(VENV)/bin/uvicorn
@@ -40,6 +40,10 @@ mannequins:
 
 model:
 	uv run python scripts/generate_model.py
+
+# Grant credits to the local user: make credits N=10
+credits:
+	uv run python scripts/grant_credits.py --amount $(or $(N),10)
 
 clean:
 	rm -f var/*.db

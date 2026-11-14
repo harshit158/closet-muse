@@ -23,6 +23,16 @@ def _utcnow() -> datetime.datetime:
 
 class User(UserCreate, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    # Spendable balance for paid image generation. Deliberately declared here and
+    # NOT on ``UserCreate``: the create endpoint must never accept a client-supplied
+    # balance. Every mutation goes through ``services.credits``, which also writes a
+    # ``CreditLedger`` row, so the balance is always reconstructible from history.
+    #
+    # Defaults to 0 rather than a free allowance: the opening grant is applied
+    # explicitly (``credits.grant``) so it appears in the ledger like every other
+    # movement. A column default would mint credits invisibly and break the invariant
+    # that ``sum(ledger.delta) == user.credits``.
+    credits: int = Field(default=0)
     created_at: datetime.datetime = Field(default_factory=_utcnow)
     updated_at: datetime.datetime = Field(
         default_factory=_utcnow,
@@ -192,6 +202,45 @@ class OutfitImage(SQLModel, table=True):
     created_at: datetime.datetime = Field(default_factory=_utcnow)
 
 
+class CreditLedger(SQLModel, table=True):
+    """One credit movement: a spend, a grant, or a manual top-up.
+
+    The balance lives on ``user.credits`` so reading it is a single row lookup, but
+    every change is also recorded here. That makes the balance auditable and lets a
+    spend be traced back to the outfit it paid for.
+
+    ``balance_after`` is stored rather than derived: the ledger is append-only, so a
+    later grant must not retroactively change what an earlier row reported.
+
+    ``outfit_id`` is nullable because grants are not tied to an outfit, and
+    ``ondelete="SET NULL"`` because deleting an outfit must not erase the record that
+    credits were spent on it.
+
+    SQLModel derives the table name from the class name (``CreditLedger`` ->
+    ``creditledger``), matching ``outfitimage`` / ``avatarimage``, so ``__tablename__``
+    is deliberately not set.
+    """
+
+    __table_args__ = (
+        Index("ix_creditledger_user_id", "user_id"),
+        Index("ix_creditledger_outfit_id", "outfit_id"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", ondelete="CASCADE")
+    # Negative for a spend, positive for a grant. Signed so the ledger sums to the
+    # balance without needing to know each row's kind.
+    delta: int
+    # Free text ("outfit_generation", "initial_grant", "manual_topup") rather than an
+    # enum: adding a reason must not require a migration.
+    reason: str
+    balance_after: int
+    outfit_id: uuid.UUID | None = Field(
+        default=None, foreign_key="outfit.id", ondelete="SET NULL"
+    )
+    created_at: datetime.datetime = Field(default_factory=_utcnow)
+
+
 __all__ = [
     "User",
     "UserCreate",
@@ -200,6 +249,7 @@ __all__ = [
     "ClothingBase",
     "ClothingImage",
     "ClothingSourceImage",
+    "CreditLedger",
     "Outfit",
     "OutfitClothingLink",
     "OutfitImage",

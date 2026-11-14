@@ -10,7 +10,8 @@
 > persistence) implemented and verified (2026-11-14). Phase 6 (revision `0005`, dead
 > tables + storage GC) implemented and verified (2026-11-14). Phase 7 (revision `0006`,
 > clothing image tables) implemented and verified (2026-11-14). Phase 8 (docs) partially
-> done — README updated; the plan itself is the remaining record.
+> done — README updated; the plan itself is the remaining record. Phase 9 (revision
+> `0007`, credits balance + ledger) implemented and verified (2026-11-14).
 > **Audit date:** 2026-11-10, revised 2026-11-11, revised 2026-11-14 (Alembic adopted,
 > `0003`–`0006` landed, outfit persistence wired, dead tables dropped, clothing images
 > moved into child tables).
@@ -749,6 +750,79 @@ deletes an orphan in `clothing_source` and still skips an unmigrated DB.
 - There are no "deprecated legacy columns" to document — revision `0006` dropped them.
 - `/memories/repo/categories.md` needs no change: the `view` vocabulary (`front` /
   `tilted`) already matched `MANNEQUIN_VIEWS`.
+
+### Phase 9 — Credits *(revision `0007`)* — ✅ DONE (2026-11-14)
+
+**Goal:** cap how many paid generations a user can make, and show the balance at the top
+of the app.
+
+**Decisions (user, 2026-11-14):**
+- **Only outfit generation costs credits.** Polish previews and attribute extraction are
+  free — they are part of onboarding, and charging for them would make adding a garment
+  feel like a gamble.
+- **Flat cost per action**, not per underlying API call. The try-on makes one request per
+  model view, but the user asked for one look, so it is charged once.
+- **Hard block.** The backend answers `402` and the UI disables the button.
+- **Balance column + ledger table**, so spend history is auditable.
+- Displayed on the **right of the existing sticky hero band**, next to the tagline.
+
+**Schema:**
+- `user.credits` — `INTEGER NOT NULL`, default `0` in the model.
+- `creditledger` — `id` (Uuid PK), `user_id` (FK `user.id`, `ON DELETE CASCADE`,
+  indexed), `delta` (signed int), `reason` (free text), `balance_after` (int),
+  `outfit_id` (nullable, FK `outfit.id`, `ON DELETE SET NULL`, indexed), `created_at`.
+  Table name is derived from the class (`CreditLedger` → `creditledger`), matching
+  `outfitimage` / `avatarimage`.
+
+**The invariant:** `sum(creditledger.delta) == user.credits`, always. This is why the
+opening balance is **not** a column default — a default would mint credits invisibly and
+break the sum. Instead `credits.grant()` writes an `initial_grant` row, and revision
+`0007` backfills one for the pre-existing user. `credits` therefore defaults to `0` in
+the model, and every creation path (`seed.py`, `POST /users/`) grants explicitly.
+
+**Migration hazard (the reason this phase is risky):** removing the temporary
+`server_default` from `credits` forces a batch **rebuild of `user`**, which holds `dob`
+(`DATE`). Alembic emits `CAST(user.dob AS DATE)` when the target type differs, and
+SQLite's `DATE` cast has NUMERIC affinity — `'1995-01-01'` becomes the integer `1995`.
+`copy_from=_user_copy_source(...)` declares `dob` as `sa.Date()` (the post-migration
+type) so the copy stays a plain `INSERT ... SELECT`. Same fix as revision `0004`.
+
+**Service:** `src/closet_muse/services/credits.py` is the only place a balance changes.
+- `CREDIT_COST_OUTFIT = 1`, `INITIAL_GRANT = 20` — module constants, not `Settings`
+  fields: a price is a product decision, not deployment config.
+- `spend()` uses a single conditional `UPDATE ... WHERE credits >= :n` and checks
+  `rowcount`, so the check and the write cannot be split by a concurrent request. It
+  flushes but **never commits** — the caller owns the transaction, which is what lets a
+  failed outfit save roll the deduction back.
+- `grant()` for seeding and top-ups.
+
+**API:** `POST /outfits/generate/{user_id}` checks the balance **before** the paid API
+calls (fail fast, don't spend money on images that cannot be saved), then spends inside
+`_persist_outfit`'s existing `try/except` so a failed save rolls back both the rows and
+the charge. The remaining balance comes back in `X-Credits-Remaining`. `GET /users/{id}`
+needed no change — it returns the model, so `credits` appears automatically.
+
+**Frontend:** `styles.hero(..., credits=...)` renders the pill; `app.py` fetches the
+balance once into `st.session_state.credits` (a failed fetch omits the pill rather than
+showing a misleading zero); `generate_outfit.py` disables Generate at zero, catches
+`InsufficientCreditsError`, and writes the returned balance back.
+
+**Top-up:** `scripts/grant_credits.py` + `make credits N=10`.
+
+**Verified (2026-11-14):** fresh DB `0001→0007` clean and `alembic check` clean;
+downgrade/upgrade round-trip on the real DB with `dob` still `1995-01-01` and all row
+counts unchanged; generation stubbed (no API credits) → 1 credit spent, ledger row
+linked to the outfit, `X-Credits-Remaining: 19`; at zero → `402` with **no** outfit row,
+**no** ledger row, **no** files, and **no** generation call; a failing save leaves the
+balance untouched; `sum(delta) == credits` after every step; UI shows the pill, and at
+zero the button is disabled with the warning style applied.
+
+**Known pre-existing issue (NOT caused by this phase):** `alembic check` on the *live*
+database reports `bodyprofile`, `generatedimage`, and `surpriseoutfit` as removable. Those
+tables are still present in the live DB (all 0 rows) even though revisions `0003`/`0005`
+dropped them from the models — the drift predates this work and reproduces on a copy of
+the pre-change backup. A freshly migrated DB is clean. Left alone deliberately: dropping
+them is a separate cleanup, and the repo rules forbid acting on unmeasured state.
 
 ---
 
