@@ -8,6 +8,7 @@ instead of being duplicated (or reached for through a private name).
 import base64
 from io import BytesIO
 
+import requests
 from PIL import Image
 
 from closet_muse.settings import settings
@@ -31,22 +32,43 @@ def require_api_key() -> None:
         )
 
 
-def detect_mime(data: bytes) -> str:
-    """Detect an image's MIME type from its bytes, defaulting to ``image/png``."""
+def _detect_mime(data: bytes) -> str | None:
+    """Detect an image's MIME type from its bytes, or ``None`` if unrecognised."""
     try:
         with Image.open(BytesIO(data)) as img:
             fmt = (img.format or "").upper()
-    except Exception:  # noqa: BLE001 - fall back to a safe default
-        return "image/png"
-    return _MIME_BY_FORMAT.get(fmt, "image/png")
+    except Exception:  # noqa: BLE001 - not an image PIL can read
+        return None
+    return _MIME_BY_FORMAT.get(fmt)
+
+
+def detect_mime(data: bytes) -> str:
+    """Detect an image's MIME type from its bytes, defaulting to ``image/png``."""
+    return _detect_mime(data) or "image/png"
 
 
 def to_data_url(data: bytes, mime: str | None = None) -> str:
     """Return a ``data:`` URL for the given image bytes.
 
-    The MIME type is detected from the bytes unless one is explicitly given, so
-    the declared type always matches the actual image (OpenRouter rejects a
-    mismatch with a 400).
+    The MIME type is always detected from the bytes; ``mime`` is only a fallback
+    for a format PIL cannot identify. Callers cannot be trusted to declare it:
+    the frontend labels every upload ``image/png``, so a JPEG photo would be
+    declared as PNG and OpenRouter rejects the mismatch with a 400.
     """
-    mime = mime or detect_mime(data)
+    mime = _detect_mime(data) or mime or "image/png"
     return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+
+
+def raise_for_status(response: requests.Response) -> None:
+    """Raise ``RuntimeError`` carrying the response body when a request failed.
+
+    ``requests``' own ``raise_for_status`` reports only the status code, but
+    OpenRouter puts the real reason in the JSON body (a MIME mismatch, a content
+    filter, an unsupported model), so a bare "400 Bad Request" hides the cause.
+    """
+    if response.ok:
+        return
+    raise RuntimeError(
+        f"OpenRouter request failed with HTTP {response.status_code}: "
+        f"{response.text}"
+    )

@@ -183,8 +183,12 @@ class OnboardWardrobe:
             # images then both live in the "Generated previews" card, and no
             # extra rerun is needed (the card consumes it in this same run).
             st.session_state.onboard_preview_request = {
+                # Carry the upload's real MIME type: NamedBytesIO defaults to
+                # image/png, which mislabels a JPEG photo.
                 "photos": [
-                    api_utils.NamedBytesIO(photo.getvalue(), photo.name)
+                    api_utils.NamedBytesIO(
+                        photo.getvalue(), photo.name, photo.type or "image/png"
+                    )
                     for photo in uploads
                 ],
                 "garment_noun": GARMENT_TYPE_NOUNS[garment_type],
