@@ -16,7 +16,11 @@ from pathlib import Path
 import requests
 
 from closet_muse.domain.schemas import ClothingWithImage
-from closet_muse.services.openrouter import require_api_key, to_data_url
+from closet_muse.services.openrouter import (
+    raise_for_status,
+    require_api_key,
+    to_data_url,
+)
 from closet_muse.settings import settings
 
 # ---------------------------------------------------------------------------
@@ -321,7 +325,7 @@ def _polish_one_view(
         headers=headers,
         timeout=settings.image_timeout,
     )
-    response.raise_for_status()
+    raise_for_status(response)
     body = response.json()
 
     if body.get("error"):
@@ -351,8 +355,10 @@ def polish_clothing_image(
     (a primary shot plus additional angles); every photo is attached as a
     reference so the model can read the garment from all angles.
 
-    ``mime_types`` may be a single MIME type or one per image; when omitted the
-    MIME type is detected from each image's bytes.
+    ``mime_types`` may be a single MIME type or one per image. It is only a
+    fallback: the type is always detected from each image's bytes, because a
+    caller-supplied type can be wrong (the frontend labels every upload
+    ``image/png``) and OpenRouter rejects a mismatch with a 400.
 
     Returns ``{"front": png_bytes, "tilted": png_bytes}``. Raises
     ``RuntimeError`` if either view came back without an image, so a partially
@@ -516,7 +522,7 @@ def _tryon_one_view(
         headers=headers,
         timeout=settings.image_timeout,
     )
-    response.raise_for_status()
+    raise_for_status(response)
     body = response.json()
 
     if body.get("error"):
