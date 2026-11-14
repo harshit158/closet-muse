@@ -3,7 +3,7 @@
 > **Read before running any command or editing any file.**
 >
 > Single-user, local-first wardrobe app holding **photos of the user's home and body**.
-> A previous session destroyed every stored image by running `make clean`. Never repeat it.
+> `make clean` destroys the database and every stored image, and there is no backup.
 > **`var/` and `assets/` are both read-only.** Do not delete, overwrite, or regenerate
 > anything in either — not even files that look reproducible.
 
@@ -50,13 +50,14 @@ parts of it.
   — a DB backup alone restores rows that point at missing files. Use `.backup`, not `cp`: WAL
   is on, so a plain copy can be torn.
 
-### Current data state — leave it as-is
+### Never assume the data is disposable
 
-- `var/closet_muse.db` — **14 `clothing` rows, 1 `user`**, revision `0004`. Intact.
-- `var/storage/clothing/` — **0 files**; the 14 rows reference filenames lost to `make clean`.
+Row counts, revisions, and stored-file counts change constantly. **Do not infer the current
+state from this file, and do not act on a state you have not just measured.** Query the
+live database before deciding anything is empty, orphaned, or safe to remove.
 
-The user has decided to **leave this as-is**. Do not delete the rows, re-seed, or treat the
-image 404s as a bug to fix.
+A row whose image file is missing is **not** permission to delete the row, re-seed, or treat
+the 404 as a bug to fix. Report what is missing and ask.
 
 ---
 
@@ -77,8 +78,8 @@ There is **no backup mechanism** in this project. A deleted file is gone for goo
 
 - Never commit images, notebooks, `.env`, or anything under `var/`.
 - Before committing: run `git status`, confirm no `*.png`, `*.jpg`, `*.db`, `.env`, `*.ipynb`.
-- History holds exactly **two** image blobs — `assets/logo/{sidebar,title}_logo.png`. Keep it
-  that way.
+- The only image blobs that may ever appear in history are `assets/logo/*.png`. Keep it that
+  way.
 - `.gitignore` cannot stop `git add -f`, so never use `-f` on an ignored path.
 
 ---
@@ -154,8 +155,8 @@ are unchanged.
 
 ## 8. Plans and style
 
-- **`db_plan.md`** — schema roadmap. Phases 1, 2, 2b, 3, 5 done (`0001`–`0004`); next is
-  Phase 4 (wire outfit persistence).
+- **`db_plan.md`** — schema roadmap. It records which phases have landed and which is next;
+  read it rather than assuming.
 - Read it before schema work and update it when a phase lands. Don't silently overrule a
   decision recorded there — say so and ask.
 - Keep changes scoped. Match surrounding style: type hints, docstrings on public functions,
@@ -168,14 +169,16 @@ are unchanged.
 
 ```bash
 uv run alembic check                                           # "No new upgrade operations detected"
-sqlite3 var/closet_muse.db "select count(*) from clothing;"    # must still be 14
+sqlite3 var/closet_muse.db "select count(*) from clothing;"    # unchanged by your change
 sqlite3 var/closet_muse.db "select * from alembic_version;"    # expected revision
-ls var/storage/clothing | wc -l                                # must not go down
+find var/storage -type f | wc -l                               # must not go down
 git status                                                     # no data files
 ```
 
-Also: `make migrate` twice → the second is a no-op; `make downgrade` → `make migrate` leaves
-rows and date/text values unchanged; `GET /clothing/1` and `GET /users/1` still return 200.
+Record the counts **before** you start and compare against them afterwards — never against a
+number written in this file. Also: `make migrate` twice → the second is a no-op;
+`make downgrade` → `make migrate` leaves row counts and date/text values unchanged;
+`GET /clothing/1` and `GET /users/1` still return 200.
 
 Use real command output. Never describe what a command "would" do and present it as
 verification.
