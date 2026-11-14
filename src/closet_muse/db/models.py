@@ -30,16 +30,6 @@ class User(UserCreate, table=True):
     )
 
 
-class BodyProfile(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id")
-    height_cm: Optional[float] = None
-    weight_kg: Optional[float] = None
-    skin_tone: Optional[str] = None
-    body_shape: Optional[str] = None
-    avatar_image_path: Optional[str] = None
-
-
 class AvatarImage(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: int = Field(foreign_key="user.id")
@@ -98,8 +88,8 @@ class Outfit(SQLModel, table=True):
     )
     occasion: Optional[enums.Occasion] = None
     season: Optional[enums.Season] = None
-    # User reaction to a generated outfit; migrated here from the dropped
-    # ``SurpriseOutfit`` table.
+    # User reaction to a generated outfit. Absorbed from the dropped
+    # ``surpriseoutfit`` table, which never had a single row.
     feedback: Optional[str] = None
 
     __table_args__ = (Index("ix_outfit_user_id", "user_id"),)
@@ -138,27 +128,13 @@ class OutfitImage(SQLModel, table=True):
     created_at: datetime.datetime = Field(default_factory=_utcnow)
 
 
-class SurpriseOutfit(SQLModel, table=True):
-    """Stores surprise outfit generation history (AI styling suggestions)."""
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: int = Field(foreign_key="user.id")
-    outfit_id: uuid.UUID = Field(foreign_key="outfit.id")
-
-    surprise_prompt: str
-    created_at: datetime.datetime = Field(default_factory=_utcnow)
-    feedback: Optional[str] = None
-
-
 __all__ = [
     "User",
     "UserCreate",
-    "BodyProfile",
     "AvatarImage",
     "Clothing",
     "ClothingBase",
     "Outfit",
     "OutfitClothingLink",
     "OutfitImage",
-    "SurpriseOutfit",
 ]

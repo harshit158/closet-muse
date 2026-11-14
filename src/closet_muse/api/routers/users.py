@@ -51,14 +51,6 @@ async def upload_avatar(
     avatar = models.AvatarImage(user_id=user_id, image_path=filename)
     session.add(avatar)
 
-    # Keep the user's body profile in sync with the latest avatar, if one exists.
-    profile = session.exec(
-        select(models.BodyProfile).where(models.BodyProfile.user_id == user_id)
-    ).first()
-    if profile is not None:
-        profile.avatar_image_path = filename
-        session.add(profile)
-
     session.commit()
     session.refresh(avatar)
     return avatar

@@ -7,9 +7,10 @@
 > implemented and verified (2026-11-14). Phase 2b (revision `0003`, `outfitimage`)
 > implemented and verified (2026-11-14). Phases 3 + 5 (revision `0004`, columns /
 > indexes / cascade) implemented and verified (2026-11-14). Phase 4 (wire outfit
-> persistence) implemented and verified (2026-11-14). Phases 6, 7, 8 not started.
+> persistence) implemented and verified (2026-11-14). Phase 6 (revision `0005`, dead
+> tables + storage GC) implemented and verified (2026-11-14). Phases 7, 8 not started.
 > **Audit date:** 2026-11-10, revised 2026-11-11, revised 2026-11-14 (Alembic adopted,
-> `0003` and `0004` landed, outfit persistence wired).
+> `0003`–`0005` landed, outfit persistence wired, dead tables dropped).
 
 ---
 
@@ -402,7 +403,7 @@ Alembic" constraint that used to sit in §1.
 | `0002_normalize_clothing_main_category_length` ✅ | 2 | **Unplanned — discovered during verification.** The local DB had `main_category VARCHAR(16)` from an older enum definition while the model declares 11; SQLite ignores the length, but it made `alembic check` report permanent drift. Batch-altered to `VARCHAR(11)`. No-op on DBs created from `0001`. |
 | `0003_outfitimage` ✅ | 2b | `drop_table("generatedimage")` + `create_table("outfitimage")` with the settled 7-column shape, `UNIQUE(outfit_id, view)`, indexes on `user_id` / `outfit_id`. Drop+create, not rename — 0 rows, and the column set changes too much for a rename to be worth it. |
 | `0004_columns_indexes_cascade` ✅ | 3 + 5 | `clothing` +`color_hex`/`fit`/`mannequin_form`/`is_archived`/`updated_at`; `outfit` +`feedback`/`updated_at` and `occasion`/`season` enum retype; `user` +`updated_at` and `dob`→`date`; `avatarimage` +`created_at`; `outfitclothinglink` batch-recreated with `ondelete="CASCADE"`; every index from Phase 3. |
-| `0005_drop_dead_tables` | 6 | `drop_table("surpriseoutfit")`, `drop_table("bodyprofile")`. |
+| `0005_drop_dead_tables` ✅ | 6 | `drop_table("surpriseoutfit")`, `drop_table("bodyprofile")`. |
 | `0006_image_tables` | 7 | Create `clothing_image` + `clothing_source_image`, **backfill inside the revision**, then batch-drop `clothing.image_path` / `image_path_tilted`. |
 
 > **Why `0004` merges Phase 3 and Phase 5:** both are pure column/index work on the same
@@ -555,7 +556,7 @@ revision `0004`, 0 files in `var/storage/clothing`).
 
 **`user`:** retype `dob` to `date`; add `updated_at`.
 
-### Phase 6 — Drop dead tables + storage GC *(needs revision `0004`)*
+### Phase 6 — Drop dead tables + storage GC *(needs revision `0004`)* — ✅ DONE
 
 **File:** `src/closet_muse/db/models.py`
 - Remove `SurpriseOutfit` and `BodyProfile` (classes + `__all__`).
@@ -574,6 +575,40 @@ revision `0004`, 0 files in `var/storage/clothing`).
 - List files in `var/storage/generated/` (and other buckets) whose names match no `outfitimage.image_path` / `clothing_image.image_path` / `clothing_source_image.image_path` / `avatarimage.image_path`.
 - Delete them. This reclaims the 47 existing orphans.
 - Use `--dry-run` by default.
+
+**Implemented 2026-11-14.** `migrations/versions/20261114_1120_0005_drop_dead_tables.py`
+drops both tables; its `downgrade()` recreates them in their `0001_baseline` shape, so the
+full `downgrade base` chain still runs. `SurpriseOutfit` / `BodyProfile` are gone from
+`models.py` and `__all__`, and the unreachable `BodyProfile` sync is removed from
+`upload_avatar`.
+
+`scripts/gc_storage.py` + `make gc` (dry run; `make gc APPLY=1` deletes). Buckets and their
+owning columns are declared in `BUCKET_SOURCES`, so Phase 7 only needs to add
+`clothing_source` and the `clothing_image` columns there.
+
+**CASCADE was verified before touching the manual cleanup**, as the plan required: deleting
+a garment through a plain `session.delete()` (no link cleanup) removed its
+`outfitclothinglink` row. The manual cleanup in `delete_clothing_item` is therefore
+redundant — it is **kept** as a defensive no-op, since it costs one indexed query and
+protects against a future engine that forgets the PRAGMA.
+
+**GC safety design** (the reason this script is not a one-liner):
+- Dry run by default; `--apply` is required to delete.
+- Only `var/storage/<bucket>/` is scanned. `assets/` is never touched.
+- A missing bucket directory is skipped, never created — `storage.bucket_dir()` would
+  `mkdir` as a side effect, so the script resolves paths itself.
+- **A bucket whose table/column is missing is skipped with a warning.** An unmigrated DB
+  (or a mistyped `SQLITE_PATH`) must never be read as "every file is an orphan".
+- A missing database file exits 1 without deleting anything.
+
+Verified: `alembic check` → "No new upgrade operations detected"; the real DB migrated
+`0004`→`0005` with 14 clothing rows, `dob = 1995-01-01`, and 0 storage files unchanged;
+a second `make migrate` is a no-op; `downgrade -1` recreates both tables and `downgrade
+base` completes; `/clothing/1`, `/users/1`, `/clothing/counts/1`, `/outfits/1/history` all
+return 200. GC on a scratch tree deleted only unreferenced files, kept files referenced by
+`outfitimage` / `avatarimage` rows, refused to touch a bucket whose table was missing, and
+exited 1 on a missing DB. `make gc` on the real storage reports no orphans (the 47
+pre-existing orphans were already gone — `var/storage/generated/` does not exist).
 
 ### Phase 7 — Clothing image tables *(revision `0006`)*
 
@@ -699,7 +734,7 @@ create-copy-drop-rename rebuild, so the table ends up matching `Clothing` exactl
 | `src/closet_muse/seed.py` | Remove the `create_db_and_tables()` call |
 | `alembic.ini` | NEW — `script_location = migrations`, URL resolved in `env.py` |
 | `migrations/env.py` | NEW — `target_metadata = SQLModel.metadata`, `render_as_batch=True`, `compare_type=True`, plain engine (no FK PRAGMA) |
-| `migrations/versions/0001_baseline.py`, `0002_normalize_…` (done); `0003_outfitimage.py` … `0006_image_tables.py` (to write) | One revision per plan phase |
+| `migrations/versions/0001_baseline.py`, `0002_normalize_…`, `0003_outfitimage.py`, `0004_columns_indexes_cascade.py`, `0005_drop_dead_tables.py` (done); `0006_image_tables.py` (to write) | One revision per plan phase |
 | `scripts/migrate.py` | NEW — `alembic stamp 0001` adoption shim, then `upgrade head` |
 | `src/closet_muse/api/deps.py` | `rollback()` on error |
 | `src/closet_muse/api/routers/outfits.py` | **Core fix** — persist `Outfit` + links + `OutfitImage`; new history endpoints; read polished images from `clothing_image` |
@@ -730,9 +765,9 @@ create-copy-drop-rename rebuild, so the table ends up matching `Clothing` exactl
 9. `sqlite3 var/closet_muse.db ".indexes clothing"` → expect the new indexes.
 10. `sqlite3 var/closet_muse.db "SELECT dob FROM user;"` → `1995-01-01`, no time component.
 11. Generate an outfit in the UI, then verify: one `outfit` row, N `outfitclothinglink` rows, 3 `outfitimage` rows with distinct `view` values, and every filename in `var/storage/generated/` has a DB row.
-12. Delete a clothing item belonging to a saved outfit → the link row disappears via CASCADE (no manual cleanup).
-13. Run the GC script → deletes only pre-existing orphans, leaves newly-persisted files alone.
-14. `sqlite3 var/closet_muse.db ".tables"` → `surpriseoutfit`, `bodyprofile`, `generatedimage` are gone; `clothing_image` and `clothing_source_image` exist.
+12. Delete a clothing item belonging to a saved outfit → the link row disappears via CASCADE (no manual cleanup). ✅ verified 2026-11-14
+13. Run the GC script → deletes only pre-existing orphans, leaves newly-persisted files alone. ✅ verified 2026-11-14
+14. `sqlite3 var/closet_muse.db ".tables"` → `surpriseoutfit`, `bodyprofile`, `generatedimage` are gone; `clothing_image` and `clothing_source_image` exist. ✅ dead tables gone 2026-11-14; the two image tables arrive with `0006`.
 15. **Image tables:** onboard an item with 3 photos → 1 `clothing_image` (`front`) + 1 (`tilted`) + 3 `clothing_source_image` rows with `position` 0/1/2, and 3 files in `var/storage/clothing_source/`.
 16. **Backward compatibility:** `GET /clothing/{user_id}` still returns `image_path` and `image_path_tilted` (computed), so the gallery, the selection tray and the edit dialog render unchanged.
 17. **Try-on still works:** generate an outfit → the request receives both polished views read from `clothing_image`.
