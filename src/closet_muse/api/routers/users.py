@@ -70,15 +70,15 @@ def get_avatar(user_id: int, session: SessionDep) -> Response:
     _get_user_or_404(user_id, session)
 
     avatar = session.exec(
-        select(models.AvatarImage).where(models.AvatarImage.user_id == user_id)
-    ).all()
-    if not avatar:
+        select(models.AvatarImage)
+        .where(models.AvatarImage.user_id == user_id)
+        .order_by(models.AvatarImage.created_at.desc())
+    ).first()
+    if avatar is None:
         raise HTTPException(status_code=404, detail="Avatar not found.")
 
     try:
-        data = storage.read_image(
-            settings.storage_bucket_avatar, avatar[-1].image_path
-        )
+        data = storage.read_image(settings.storage_bucket_avatar, avatar.image_path)
     except (ValueError, FileNotFoundError):
         raise HTTPException(status_code=404, detail="Avatar image not found.")
     return Response(content=data, media_type="image/png")

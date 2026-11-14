@@ -12,13 +12,21 @@ from typing import Optional
 from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
+from closet_muse.domain import enums
 from closet_muse.domain.schemas import ClothingBase, UserCreate
+
+
+def _utcnow() -> datetime.datetime:
+    """Timezone-aware timestamp used by every ``created_at`` / ``updated_at``."""
+    return datetime.datetime.now(datetime.timezone.utc)
 
 
 class User(UserCreate, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    created_at: datetime.datetime = Field(default_factory=_utcnow)
+    updated_at: datetime.datetime = Field(
+        default_factory=_utcnow,
+        sa_column_kwargs={"onupdate": _utcnow},
     )
 
 
@@ -36,19 +44,43 @@ class AvatarImage(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: int = Field(foreign_key="user.id")
     image_path: str
+    created_at: datetime.datetime = Field(default_factory=_utcnow)
+
+    __table_args__ = (Index("ix_avatarimage_user_id", "user_id"),)
 
 
 class Clothing(ClothingBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: int = Field(foreign_key="user.id")
-    created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    created_at: datetime.datetime = Field(default_factory=_utcnow)
+    updated_at: datetime.datetime = Field(
+        default_factory=_utcnow,
+        sa_column_kwargs={"onupdate": _utcnow},
+    )
+    # Soft-delete flag. Added but not wired to any endpoint yet (out of scope).
+    is_archived: bool = Field(default=False)
+
+    __table_args__ = (
+        Index("ix_clothing_user_id", "user_id"),
+        Index("ix_clothing_user_id_main_category", "user_id", "main_category"),
     )
 
 
 class OutfitClothingLink(SQLModel, table=True):
-    outfit_id: uuid.UUID = Field(foreign_key="outfit.id", primary_key=True)
-    clothing_item_id: uuid.UUID = Field(foreign_key="clothing.id", primary_key=True)
+    """Which garments form an outfit. Rows go away with their outfit or garment."""
+
+    outfit_id: uuid.UUID = Field(
+        foreign_key="outfit.id", primary_key=True, ondelete="CASCADE"
+    )
+    clothing_item_id: uuid.UUID = Field(
+        foreign_key="clothing.id", primary_key=True, ondelete="CASCADE"
+    )
+
+    # The composite PK covers (outfit_id, clothing_item_id), so the delete path —
+    # which filters on clothing_item_id alone — would otherwise full-scan.
+    __table_args__ = (
+        Index("ix_outfitclothinglink_clothing_item_id", "clothing_item_id"),
+    )
 
 
 class Outfit(SQLModel, table=True):
@@ -59,11 +91,18 @@ class Outfit(SQLModel, table=True):
     name: Optional[str] = None
     description: Optional[str] = None
     created_by_ai: bool = False
-    created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    created_at: datetime.datetime = Field(default_factory=_utcnow)
+    updated_at: datetime.datetime = Field(
+        default_factory=_utcnow,
+        sa_column_kwargs={"onupdate": _utcnow},
     )
-    occasion: Optional[str] = None
-    season: Optional[str] = None
+    occasion: Optional[enums.Occasion] = None
+    season: Optional[enums.Season] = None
+    # User reaction to a generated outfit; migrated here from the dropped
+    # ``SurpriseOutfit`` table.
+    feedback: Optional[str] = None
+
+    __table_args__ = (Index("ix_outfit_user_id", "user_id"),)
 
 
 class OutfitImage(SQLModel, table=True):
@@ -96,9 +135,7 @@ class OutfitImage(SQLModel, table=True):
     image_path: str
     model: str
 
-    created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
+    created_at: datetime.datetime = Field(default_factory=_utcnow)
 
 
 class SurpriseOutfit(SQLModel, table=True):
@@ -109,9 +146,7 @@ class SurpriseOutfit(SQLModel, table=True):
     outfit_id: uuid.UUID = Field(foreign_key="outfit.id")
 
     surprise_prompt: str
-    created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
-    )
+    created_at: datetime.datetime = Field(default_factory=_utcnow)
     feedback: Optional[str] = None
 
 

@@ -66,6 +66,11 @@ class OutfitGenerator:
         if "generated_outfit" not in st.session_state:
             st.session_state.generated_outfit = None
 
+        # id of the persisted outfit behind ``generated_outfit`` (None when the
+        # backend did not record one)
+        if "generated_outfit_id" not in st.session_state:
+            st.session_state.generated_outfit_id = None
+
     def _clothing_count(self, category: WomenClothingMainCategory) -> int:
         """Get the number of clothing items for a given category."""
         return self.counts.get(category.name, 0)
@@ -214,6 +219,7 @@ class OutfitGenerator:
 
         if generated and st.button("Back to photos", width="stretch"):
             st.session_state.generated_outfit = None
+            st.session_state.generated_outfit_id = None
             st.session_state.look_index = 0
             st.rerun(scope="fragment")
 
@@ -236,16 +242,19 @@ class OutfitGenerator:
             return
 
         with st.spinner("Generating your looks..."):
-            views = api_utils.generate_outfit(self.user_id, clothing_ids)
-        if not views:
+            result = api_utils.generate_outfit(self.user_id, clothing_ids)
+        if result is None or not result.views:
             st.error("Failed to generate outfit.")
             return
 
         # Downscale each look once here, so the carousel arrows never re-encode
         # the full-size PNGs on a rerun.
         st.session_state.generated_outfit = {
-            name: _to_display_bytes(data) for name, data in views.items()
+            name: _to_display_bytes(data) for name, data in result.views.items()
         }
+        # The backend persists the outfit; keep its id so the look can be
+        # revisited later without regenerating it.
+        st.session_state.generated_outfit_id = result.outfit_id
         # Start on the center view, matching the model-photo carousel.
         view_names = list(self.MODEL_VIEWS)
         st.session_state.look_index = (
