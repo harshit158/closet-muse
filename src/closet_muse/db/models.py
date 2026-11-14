@@ -10,7 +10,7 @@ import uuid
 from typing import Optional
 
 from sqlalchemy import Index, UniqueConstraint
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, Relationship, SQLModel
 
 from closet_muse.domain import enums
 from closet_muse.domain.schemas import ClothingBase, UserCreate
@@ -50,10 +50,74 @@ class Clothing(ClothingBase, table=True):
     # Soft-delete flag. Added but not wired to any endpoint yet (out of scope).
     is_archived: bool = Field(default=False)
 
+    # The polished mannequin renders and the user's original uploads. Both are
+    # eagerly loaded (``selectin``) because every read path needs them, and both
+    # cascade so deleting an item never leaves orphaned child rows behind.
+    images: list["ClothingImage"] = Relationship(
+        back_populates="clothing",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan", "lazy": "selectin"},
+    )
+    source_images: list["ClothingSourceImage"] = Relationship(
+        back_populates="clothing",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan", "lazy": "selectin"},
+    )
+
     __table_args__ = (
         Index("ix_clothing_user_id", "user_id"),
         Index("ix_clothing_user_id_main_category", "user_id", "main_category"),
     )
+
+
+class ClothingImage(SQLModel, table=True):
+    """A polished render of one garment on one mannequin view.
+
+    Replaces the old ``clothing.image_path`` / ``image_path_tilted`` columns: one row
+    per view, so a third view needs no schema change. ``view`` is free text mirroring
+    ``image_generation.MANNEQUIN_VIEWS`` (``"front"`` / ``"tilted"``), for the same
+    reason ``OutfitImage.view`` is — the set of views is developer-curated config, not
+    user data.
+
+    ``__tablename__`` is set explicitly: SQLModel would otherwise derive
+    ``clothingimage`` from the class name, and the plan (and revision ``0006``) name the
+    table ``clothing_image``.
+    """
+
+    __tablename__ = "clothing_image"
+
+    __table_args__ = (
+        UniqueConstraint("clothing_id", "view", name="uq_clothingimage_clothing_view"),
+        Index("ix_clothingimage_clothing_id", "clothing_id"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    clothing_id: uuid.UUID = Field(foreign_key="clothing.id", ondelete="CASCADE")
+    view: str
+    image_path: str
+    created_at: datetime.datetime = Field(default_factory=_utcnow)
+
+    clothing: Optional["Clothing"] = Relationship(back_populates="images")
+
+
+class ClothingSourceImage(SQLModel, table=True):
+    """One of the user's original upload photos for a garment.
+
+    These used to be read into memory, sent to the image model, and dropped — so the
+    only copy of the user's photo was lost. Keeping them makes an item re-polishable
+    with a different mannequin form. ``position`` preserves the upload order, with
+    ``0`` as the primary reference.
+    """
+
+    __tablename__ = "clothing_source_image"
+
+    __table_args__ = (Index("ix_clothingsourceimage_clothing_id", "clothing_id"),)
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    clothing_id: uuid.UUID = Field(foreign_key="clothing.id", ondelete="CASCADE")
+    image_path: str
+    position: int = 0
+    created_at: datetime.datetime = Field(default_factory=_utcnow)
+
+    clothing: Optional["Clothing"] = Relationship(back_populates="source_images")
 
 
 class OutfitClothingLink(SQLModel, table=True):
@@ -134,6 +198,8 @@ __all__ = [
     "AvatarImage",
     "Clothing",
     "ClothingBase",
+    "ClothingImage",
+    "ClothingSourceImage",
     "Outfit",
     "OutfitClothingLink",
     "OutfitImage",

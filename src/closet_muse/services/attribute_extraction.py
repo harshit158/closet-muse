@@ -36,7 +36,9 @@ _FIELD_GUIDANCE = (
 )
 
 # Fields that describe stored files rather than the garment itself, so they are
-# never part of the extraction schema.
+# never part of the extraction schema. ``ClothingBase`` no longer declares any (the
+# image fields moved into ``clothing_image`` in revision ``0006``), but the filter is
+# kept so a future file-backed field cannot leak into the schema by accident.
 _NON_EXTRACTABLE_FIELDS = frozenset({"image_path", "image_path_tilted"})
 
 _SCHEMA_NAME = "clothing_attributes"

@@ -331,6 +331,10 @@ class OnboardWardrobe:
                 ),
                 image=st.session_state.clothing_image,
                 image_tilted=st.session_state.clothing_image_tilted,
+                # The user's own photos are kept so the item can be re-polished
+                # later. ``_upload_signature`` guarantees the previews match the
+                # current uploads, so these are still the photos behind them.
+                source_images=list(st.session_state.get("onboard_uploader") or []),
             )
             label = clothing_item.sub_category or clothing_item.main_category.value
             st.success(f"Added {label} to your wardrobe!")

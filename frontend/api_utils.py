@@ -134,26 +134,57 @@ def add_clothing_item(
     clothing: ClothingBase,
     image: FileLike,
     image_tilted: FileLike | None = None,
+    source_images: list[FileLike] | None = None,
 ) -> dict:
-    """Create a wardrobe item, uploading its front and tilted images.
+    """Create a wardrobe item, uploading its polished views and original photos.
 
-    ``image_tilted`` is the same garment on the three-quarter mannequin; it is
-    optional so an item can still be saved with a single perspective.
+    ``image`` / ``image_tilted`` are the polished mannequin renders (``front`` and
+    ``tilted``); ``image_tilted`` is optional so an item can still be saved with a
+    single perspective. ``source_images`` are the user's own uploads, kept so the
+    item can be re-polished later — they are stored in their own bucket.
 
     ``clothing.mannequin_form`` (when set) is recorded as provenance, so the item
     can be re-polished or debugged against the form it was generated on.
     """
     # Upload first, then attach the returned filenames to the record.
-    filename = upload_image(settings.storage_bucket_clothing, image)
-    payload = clothing.model_dump(mode="json")
-    payload["image_path"] = filename
-
+    images = [
+        {
+            "view": "front",
+            "image_path": upload_image(settings.storage_bucket_clothing, image),
+        }
+    ]
     if image_tilted is not None:
-        payload["image_path_tilted"] = upload_image(
-            settings.storage_bucket_clothing, image_tilted
+        images.append(
+            {
+                "view": "tilted",
+                "image_path": upload_image(
+                    settings.storage_bucket_clothing, image_tilted
+                ),
+            }
         )
 
+    payload = clothing.model_dump(mode="json")
+    payload["images"] = images
+    payload["source_image_paths"] = [
+        upload_image(settings.storage_bucket_clothing_source, photo)
+        for photo in (source_images or [])
+    ]
+
     response = _post(f"/clothing/{user_id}", json=payload)
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_clothing_images(clothing_id: str) -> list[dict]:
+    """Fetch a garment's polished renders (one row per mannequin view)."""
+    response = _get(f"/clothing/item/{clothing_id}/images")
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_clothing_source_images(clothing_id: str) -> list[dict]:
+    """Fetch a garment's original upload photos, in upload order."""
+    response = _get(f"/clothing/item/{clothing_id}/source-images")
     response.raise_for_status()
     return response.json()
 

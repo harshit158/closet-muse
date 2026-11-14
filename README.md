@@ -107,6 +107,32 @@ Two details worth knowing:
 Enum columns store the enum **name** (`"ONE_PIECE"`, `"POLYESTER"`), not its value, and
 SQLite renders them as `VARCHAR(n)` with no `CHECK` constraint.
 
+### Clothing images
+
+A garment's images live in two child tables rather than in columns on `clothing`:
+
+| table | holds | shape |
+| --- | --- | --- |
+| `clothing_image` | the polished mannequin renders | one row per view (`front`, `tilted`), `UNIQUE(clothing_id, view)` |
+| `clothing_source_image` | the user's original upload photos | one row per photo, `position` 0 = primary |
+
+They are two tables, not one with a `kind` discriminator, because the two kinds have
+different shapes and different lifecycles. Keeping the source photos means an item can be
+re-polished later; they used to be read into memory and discarded.
+
+`GET /clothing/{user_id}` still returns `image_path` and `image_path_tilted`, but they are
+**computed** from `clothing_image` — the gallery, the selection tray, the edit dialog, and
+the try-on generator read them unchanged.
+
+Stored files are named `<uuid>.<ext>` and the bucket is implied by the owning row, so a
+backup must move the whole `storage_dir`. Buckets: `clothing` (polished renders),
+`clothing_source` (original uploads), `generated` (try-on output), `avatar`.
+
+```bash
+make gc            # report image files no row references (dry run)
+make gc APPLY=1    # delete them
+```
+
 ### Adopting a pre-Alembic database
 
 `make migrate` detects a database that has tables but no `alembic_version` row and stamps

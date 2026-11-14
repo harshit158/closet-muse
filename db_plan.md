@@ -8,9 +8,12 @@
 > implemented and verified (2026-11-14). Phases 3 + 5 (revision `0004`, columns /
 > indexes / cascade) implemented and verified (2026-11-14). Phase 4 (wire outfit
 > persistence) implemented and verified (2026-11-14). Phase 6 (revision `0005`, dead
-> tables + storage GC) implemented and verified (2026-11-14). Phases 7, 8 not started.
+> tables + storage GC) implemented and verified (2026-11-14). Phase 7 (revision `0006`,
+> clothing image tables) implemented and verified (2026-11-14). Phase 8 (docs) partially
+> done — README updated; the plan itself is the remaining record.
 > **Audit date:** 2026-11-10, revised 2026-11-11, revised 2026-11-14 (Alembic adopted,
-> `0003`–`0005` landed, outfit persistence wired, dead tables dropped).
+> `0003`–`0006` landed, outfit persistence wired, dead tables dropped, clothing images
+> moved into child tables).
 
 ---
 
@@ -160,7 +163,7 @@ erDiagram
 8. **`Outfit.occasion` / `Outfit.season` are free-text `Optional[str]`** while `enums.Occasion` and `enums.Season` already exist and are unused.
 9. **`User.dob` is `datetime`**, should be `date`. No `updated_at` on any table.
 10. **`Clothing` gaps:** no `updated_at`, `is_archived`, `color_hex` (the docstring mentions hex), `fit`, or provenance (`mannequin_form`).
-11. **Source upload photos are discarded** — `POST /images/polish/` reads the uploads into memory, sends them to OpenRouter, and drops them. Only the polished mannequin images survive, so the user's original photos are gone forever and an item can never be re-polished with a different mannequin form. Fixed by Phase 7.
+11. **Source upload photos are discarded** — ~~`POST /images/polish/` reads the uploads into memory, sends them to OpenRouter, and drops them. Only the polished mannequin images survive, so the user's original photos are gone forever and an item can never be re-polished with a different mannequin form.~~ **Fixed in Phase 7** — the uploads are now stored in the `clothing_source` bucket and recorded as `clothing_source_image` rows.
 12. **"Surprise Me" is unimplemented** — `generate_surprise_outfit()` in `frontend/views/generate_outfit.py` is a literal `pass` stub.
 
 ### Observation
@@ -404,7 +407,7 @@ Alembic" constraint that used to sit in §1.
 | `0003_outfitimage` ✅ | 2b | `drop_table("generatedimage")` + `create_table("outfitimage")` with the settled 7-column shape, `UNIQUE(outfit_id, view)`, indexes on `user_id` / `outfit_id`. Drop+create, not rename — 0 rows, and the column set changes too much for a rename to be worth it. |
 | `0004_columns_indexes_cascade` ✅ | 3 + 5 | `clothing` +`color_hex`/`fit`/`mannequin_form`/`is_archived`/`updated_at`; `outfit` +`feedback`/`updated_at` and `occasion`/`season` enum retype; `user` +`updated_at` and `dob`→`date`; `avatarimage` +`created_at`; `outfitclothinglink` batch-recreated with `ondelete="CASCADE"`; every index from Phase 3. |
 | `0005_drop_dead_tables` ✅ | 6 | `drop_table("surpriseoutfit")`, `drop_table("bodyprofile")`. |
-| `0006_image_tables` | 7 | Create `clothing_image` + `clothing_source_image`, **backfill inside the revision**, then batch-drop `clothing.image_path` / `image_path_tilted`. |
+| `0006_image_tables` ✅ | 7 | Create `clothing_image` + `clothing_source_image`, **backfill inside the revision**, then batch-drop `clothing.image_path` / `image_path_tilted`. |
 
 > **Why `0004` merges Phase 3 and Phase 5:** both are pure column/index work on the same
 > tables, and splitting them would produce two revisions that touch `clothing` back to back
@@ -610,7 +613,7 @@ return 200. GC on a scratch tree deleted only unreferenced files, kept files ref
 exited 1 on a missing DB. `make gc` on the real storage reports no orphans (the 47
 pre-existing orphans were already gone — `var/storage/generated/` does not exist).
 
-### Phase 7 — Clothing image tables *(revision `0006`)*
+### Phase 7 — Clothing image tables *(revision `0006`)* — ✅ DONE
 
 Two new child tables. **Not one table with a `kind` discriminator** — the two kinds have
 different shapes (`view` vs `position`) and different lifecycles, and a discriminator would
@@ -710,17 +713,42 @@ Batch mode is what makes step 4 possible at all — raw SQLite cannot `DROP COLU
 old plan left the two columns in place forever. Alembic's `batch_alter_table` performs the
 create-copy-drop-rename rebuild, so the table ends up matching `Clothing` exactly.
 
+**Implemented 2026-11-14.** `migrations/versions/20261114_1200_0006_image_tables.py`.
+`ClothingImage` / `ClothingSourceImage` are in `models.py` with `__tablename__` set
+**explicitly** — SQLModel would otherwise derive `clothingimage` / `clothingsourceimage`
+from the class name, which made `alembic check` report permanent drift against the
+snake_case tables this plan names. The backfill generates PKs with
+`lower(hex(randomblob(16)))` because `clothing.id` is stored dashless (`CHAR(32)`), so a
+dashed UUID would not match.
+
+`ClothingBase` lost both image fields; `ClothingRead` re-adds them as `@computed_field`
+properties resolved from `images` by `view`, so the four existing readers needed no
+change. `Clothing.images` / `.source_images` are `Relationship(lazy="selectin",
+cascade="all, delete-orphan")`, and `delete_clothing_item` removes the files from both
+buckets before deleting the row.
+
+Verified: real DB `0005`→`0006` with 14 clothing rows, `dob = 1995-01-01`, 14 `front` +
+1 `tilted` backfilled, 0 storage files changed; `alembic check` clean; second `make
+migrate` a no-op; `downgrade -1` restores both columns with the same 14/1 counts; a
+create → read → delete round-trip leaves 0 child rows and 0 files; the try-on path reads
+both views from `clothing_image` (generation stubbed, no API credits); GC detects and
+deletes an orphan in `clothing_source` and still skips an unmigrated DB.
+
 #### 7g — GC
 
 **File:** `scripts/gc_storage.py`
 - The known-files set gains `clothing_image.image_path` and
   `clothing_source_image.image_path`; scan the new `clothing_source` bucket too.
 
-### Phase 8 — Docs
-- Update the "Database schema" section of `README.md`: replace the manual `ALTER TABLE` block with the `make migrate` / `make migration` / `make downgrade` workflow, and document the enum-name storage convention and the FK/WAL settings.
-- Document the two image tables and the `clothing_source` bucket. There are no "deprecated legacy columns" to document — revision `0006` drops them.
-- Update `/memories/repo/schema.md` with the same.
-- Update `/memories/repo/categories.md` if the `view` vocabulary changes (see open questions).
+### Phase 8 — Docs — ✅ DONE (2026-11-14)
+- `README.md` gained a "Clothing images" section: the two child tables, why they are two
+  rather than one with a discriminator, the computed `image_path` compatibility fields, the
+  bucket list, and `make gc`.
+- `/memories/repo/schema.md` records the same, plus the `__tablename__` and dashless-UUID
+  gotchas discovered while writing `0006`.
+- There are no "deprecated legacy columns" to document — revision `0006` dropped them.
+- `/memories/repo/categories.md` needs no change: the `view` vocabulary (`front` /
+  `tilted`) already matched `MANNEQUIN_VIEWS`.
 
 ---
 
@@ -734,7 +762,7 @@ create-copy-drop-rename rebuild, so the table ends up matching `Clothing` exactl
 | `src/closet_muse/seed.py` | Remove the `create_db_and_tables()` call |
 | `alembic.ini` | NEW — `script_location = migrations`, URL resolved in `env.py` |
 | `migrations/env.py` | NEW — `target_metadata = SQLModel.metadata`, `render_as_batch=True`, `compare_type=True`, plain engine (no FK PRAGMA) |
-| `migrations/versions/0001_baseline.py`, `0002_normalize_…`, `0003_outfitimage.py`, `0004_columns_indexes_cascade.py`, `0005_drop_dead_tables.py` (done); `0006_image_tables.py` (to write) | One revision per plan phase |
+| `migrations/versions/0001_baseline.py`, `0002_normalize_…`, `0003_outfitimage.py`, `0004_columns_indexes_cascade.py`, `0005_drop_dead_tables.py`, `0006_image_tables.py` | One revision per plan phase (all done) |
 | `scripts/migrate.py` | NEW — `alembic stamp 0001` adoption shim, then `upgrade head` |
 | `src/closet_muse/api/deps.py` | `rollback()` on error |
 | `src/closet_muse/api/routers/outfits.py` | **Core fix** — persist `Outfit` + links + `OutfitImage`; new history endpoints; read polished images from `clothing_image` |
@@ -767,13 +795,13 @@ create-copy-drop-rename rebuild, so the table ends up matching `Clothing` exactl
 11. Generate an outfit in the UI, then verify: one `outfit` row, N `outfitclothinglink` rows, 3 `outfitimage` rows with distinct `view` values, and every filename in `var/storage/generated/` has a DB row.
 12. Delete a clothing item belonging to a saved outfit → the link row disappears via CASCADE (no manual cleanup). ✅ verified 2026-11-14
 13. Run the GC script → deletes only pre-existing orphans, leaves newly-persisted files alone. ✅ verified 2026-11-14
-14. `sqlite3 var/closet_muse.db ".tables"` → `surpriseoutfit`, `bodyprofile`, `generatedimage` are gone; `clothing_image` and `clothing_source_image` exist. ✅ dead tables gone 2026-11-14; the two image tables arrive with `0006`.
-15. **Image tables:** onboard an item with 3 photos → 1 `clothing_image` (`front`) + 1 (`tilted`) + 3 `clothing_source_image` rows with `position` 0/1/2, and 3 files in `var/storage/clothing_source/`.
-16. **Backward compatibility:** `GET /clothing/{user_id}` still returns `image_path` and `image_path_tilted` (computed), so the gallery, the selection tray and the edit dialog render unchanged.
-17. **Try-on still works:** generate an outfit → the request receives both polished views read from `clothing_image`.
-18. **Cascade:** delete the item → both child tables' rows are gone and every file (polished + source) is deleted.
-19. **Backfill + drop:** `make migrate` on the existing DB → the non-null legacy paths in `var/storage/clothing/` become `clothing_image` rows, and `PRAGMA table_info(clothing)` no longer lists `image_path` / `image_path_tilted`.
-20. **Extraction unchanged:** `POST /images/attributes/` response contains no image keys.
+14. `sqlite3 var/closet_muse.db ".tables"` → `surpriseoutfit`, `bodyprofile`, `generatedimage` are gone; `clothing_image` and `clothing_source_image` exist. ✅ verified 2026-11-14
+15. **Image tables:** onboard an item with 3 photos → 1 `clothing_image` (`front`) + 1 (`tilted`) + 3 `clothing_source_image` rows with `position` 0/1/2, and 3 files in `var/storage/clothing_source/`. ✅ verified 2026-11-14 (via the API, on an isolated DB)
+16. **Backward compatibility:** `GET /clothing/{user_id}` still returns `image_path` and `image_path_tilted` (computed), so the gallery, the selection tray and the edit dialog render unchanged. ✅ verified 2026-11-14
+17. **Try-on still works:** generate an outfit → the request receives both polished views read from `clothing_image`. ✅ verified 2026-11-14 (generation stubbed)
+18. **Cascade:** delete the item → both child tables' rows are gone and every file (polished + source) is deleted. ✅ verified 2026-11-14
+19. **Backfill + drop:** `make migrate` on the existing DB → the non-null legacy paths in `var/storage/clothing/` become `clothing_image` rows, and `PRAGMA table_info(clothing)` no longer lists `image_path` / `image_path_tilted`. ✅ verified 2026-11-14 (14 front + 1 tilted)
+20. **Extraction unchanged:** `POST /images/attributes/` response contains no image keys. ✅ (the fields no longer exist on `ClothingBase`)
 
 ---
 
@@ -805,7 +833,7 @@ Recorded, not yet answered. Proceed with the recommendation unless the user says
 
 Multi-user/auth, Postgres migration, soft-delete UI (the `is_archived` column is added but not wired), any analytics/warehouse layer, and persisting polish output as `OutfitImage`.
 
-Also out of scope for Phase 7: a re-polish UI (re-running polish from the stored source photos — the data now exists, the feature does not). Dropping the legacy `clothing.image_path` / `image_path_tilted` columns **is now in scope** — batch mode makes the table rebuild safe, so revision `0006` removes them.
+Also out of scope for Phase 7: a re-polish UI (re-running polish from the stored source photos — the data now exists, the feature does not). Dropping the legacy `clothing.image_path` / `image_path_tilted` columns **was in scope** and revision `0006` removed them.
 
 ---
 
