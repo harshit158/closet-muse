@@ -67,8 +67,8 @@ from PIL import Image, ImageOps
 
 from closet_muse.settings import settings
 
-DEFAULT_REFERENCE_IMAGES = ["assets/avatar/model_ref.JPG"]
-DEFAULT_OUTPUT = "assets/avatar/model_generated.png"
+DEFAULT_REFERENCE_IMAGES = ["var/assets/reference/model_ref.JPG"]
+DEFAULT_OUTPUT = "var/assets/model/model_generated.png"
 # Suffix appended to the front output path to derive the tilted-view path.
 TILTED_SUFFIX = "_tilted"
 # Tilted view: which side of the IMAGE the forward shoulder is on, and how far the
@@ -239,7 +239,8 @@ def _build_prompt(
 def _tilted_path(output: Path) -> Path:
     """Return the tilted-view path derived from the front output path.
 
-    ``assets/avatar/model_generated.png`` -> ``assets/avatar/model_generated_tilted.png``.
+    ``var/assets/model/model_generated.png`` ->
+    ``var/assets/model/model_generated_tilted.png``.
     """
     return output.with_name(f"{output.stem}{TILTED_SUFFIX}{output.suffix}")
 

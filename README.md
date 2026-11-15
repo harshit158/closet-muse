@@ -131,6 +131,7 @@ backup must move the whole `storage_dir`. Buckets: `clothing` (polished renders)
 ```bash
 make gc            # report image files no row references (dry run)
 make gc APPLY=1    # delete them
+make verify        # check every referenced image and asset path exists
 ```
 
 ### Adopting a pre-Alembic database
@@ -140,8 +141,11 @@ the baseline revision instead of replaying it, so an existing wardrobe is never 
 
 ## Assets
 
+Hand-made and generated images live in `var/assets/`, next to the database and the
+DB-owned storage buckets. Only the two tracked logos stay in the repo under `assets/logo/`.
+
 ```bash
-make mannequins  # regenerate the try-on mannequins in assets/avatar/
+make mannequins  # regenerate the try-on mannequins in var/assets/mannequins/
 make model       # generate a fashion-model subject from reference photo(s)
 ```
 
@@ -174,16 +178,25 @@ fit and drape from two angles.
 `scripts/generate_model.py` builds two photorealistic model images from one or
 more reference photos of the same person (pass several with
 `--reference-image photo1.jpg photo2.jpg face.jpg`): a straight-on front view
-(`assets/avatar/model_generated.png`) and a three-quarter view
-(`assets/avatar/model_generated_tilted.png`). The tilted view is derived from the
+(`var/assets/model/model_generated.png`) and a three-quarter view
+(`var/assets/model/model_generated_tilted.png`). The tilted view is derived from the
 generated front image (not the raw references, which may themselves be turned
 shots). Tune it with `--tilt-direction {left,right}` and `--tilt-degrees N`, or
 regenerate a single view with `--views {front,tilted}`.
 
 ## Local data
 
-- SQLite database: `var/closet_muse.db` (git-ignored)
-- Image storage: `var/storage/{clothing,avatar,generated}` (git-ignored)
+`var/` is the single data root (git-ignored):
+
+- SQLite database: `var/closet_muse.db`
+- Image storage: `var/storage/{clothing,clothing_source,avatar,generated}`
+- Curated images: `var/assets/{mannequins,model,reference}`
+
+`assets/` in the repo holds only the tracked logos (`assets/logo/`).
+
+> **`make clean` deletes `var/*.db` and `var/storage` but not `var/assets/`.** After a
+> `make clean` the curated images survive while the wardrobe they belong to does not.
+> Back up the database and `var/storage` together before running it.
 
 ## Notes
 
