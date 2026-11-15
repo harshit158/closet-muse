@@ -61,9 +61,9 @@ import requests
 
 from closet_muse.settings import settings
 
-DEFAULT_REFERENCE_IMAGE = "assets/avatar/model_generated.png"
-DEFAULT_FULL_MANNEQUIN = "assets/avatar/mannequin_full.png"
-DEFAULT_OUTPUT_DIR = "assets/avatar"
+DEFAULT_REFERENCE_IMAGE = "var/assets/model/model_generated.png"
+DEFAULT_FULL_MANNEQUIN = "var/assets/mannequins/mannequin_full.png"
+DEFAULT_OUTPUT_DIR = "var/assets/mannequins"
 # Tilted view: which side of the IMAGE the forward shoulder is on, and how far the
 # body is rotated from the front (degrees). The image model reliably follows
 # image-relative wording ("the shoulder on the left side of the image") but ignores

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     image_model_fashion_model: str = "meta/muse-image"  # generate_model.py
     image_aspect_ratio: str = "2:3"
     image_seed: int = 42
-    mannequin_dir: str = "assets/avatar"
+    mannequin_dir: str = "var/assets/mannequins"
 
     # clothing-attribute extraction (OpenRouter chat completions, structured output)
     openrouter_chat_url: str = "https://openrouter.ai/api/v1/chat/completions"
@@ -40,14 +40,14 @@ class Settings(BaseSettings):
     storage_bucket_generated: str = "generated"  # stores generated outfit images
 
     # virtual try-on model image (subject used by the backend try-on)
-    model_image_path: str = "assets/avatar/model_generated.png"
+    model_image_path: str = "var/assets/model/model_generated.png"
 
     # model views shown in the "Your Look" carousel, in display order
     # (name -> path): left, center, right
     model_image_views: dict[str, str] = {
-        "left": "assets/avatar/model_generated_tilted_left.png",
-        "center": "assets/avatar/model_generated.png",
-        "right": "assets/avatar/model_generated_tilted_right.png",
+        "left": "var/assets/model/model_generated_tilted_left.png",
+        "center": "var/assets/model/model_generated.png",
+        "right": "var/assets/model/model_generated_tilted_right.png",
     }
 
     # personal settings

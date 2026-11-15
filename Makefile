@@ -1,4 +1,4 @@
-.PHONY: install migrate migration downgrade backend frontend dev seed mannequins model gc credits clean
+.PHONY: install migrate migration downgrade backend frontend dev seed mannequins model gc credits verify clean
 
 VENV := .venv
 UVICORN := $(VENV)/bin/uvicorn
@@ -22,6 +22,10 @@ downgrade:
 # Report image files that no database row references. Dry run: add APPLY=1 to delete.
 gc:
 	uv run python scripts/gc_storage.py $(if $(APPLY),--apply,)
+
+# Check that every referenced image and settings asset path exists. Read-only.
+verify:
+	uv run python scripts/verify_storage.py
 
 backend: migrate
 	uv run $(UVICORN) closet_muse.api.main:app --host 0.0.0.0 --reload
