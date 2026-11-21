@@ -182,13 +182,30 @@ def inject_css() -> None:
         }}
 
         /* ---- Uploaded reference photos ----
-           These are inputs, not the focus of the page: cap their height so the
-           "Add a piece" card stays compact next to the generated previews. */
+           These are inputs, not the focus of the page, so each one gets a fixed
+           square box instead of the full card width. ``contain`` (not ``cover``)
+           keeps the whole photo visible: the user must be able to check what they
+           uploaded, and a cropped thumbnail would hide part of it. Letterboxed
+           space is filled with the app background.
+           NOTE: the 150px size is duplicated in
+           ``onboard_wardrobe.UPLOAD_THUMB_SIZE`` (passed to ``st.image(width=)``);
+           keep the two in sync. */
         [class*="st-key-cm-card-upload"] [data-testid="stImage"] img {{
-            width: 100%;
-            height: 220px;
-            object-fit: cover;
+            width: 150px;
+            height: 150px;
+            object-fit: contain;
+            box-sizing: border-box;
+            background: var(--cm-bg);
+            border: 1px solid var(--cm-border);
             border-radius: var(--cm-radius-sm);
+        }}
+
+        /* Keep the fixed box from being overridden by the column's stretch, and
+           stop the caption from widening the thumbnail's flex item. */
+        [class*="st-key-cm-upload-thumbs"] [data-testid="stImage"],
+        [class*="st-key-cm-upload-thumbs"] [data-testid="stImageContainer"] {{
+            width: auto;
+            flex: 0 0 auto;
         }}
 
         /* ---- Equal-height cards in a row ----
