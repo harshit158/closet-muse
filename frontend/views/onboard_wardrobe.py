@@ -8,6 +8,14 @@ from closet_muse.domain import enums, schemas
 # uploader and the upload-signature bookkeeping.
 FORM_KEY_PREFIX = "onboard_form"
 
+# Square thumbnail box (px) for the uploaded reference photos. Passed to
+# ``st.image(width=...)`` here AND pinned as a fixed width/height in the
+# "Uploaded reference photos" block of ``frontend/styles.py`` — CSS cannot read
+# this constant, so the two values must be kept in sync by hand. A fixed box
+# keeps one uploaded photo from filling the whole card, and ``object-fit:
+# contain`` (CSS) shows the entire photo instead of cropping it.
+UPLOAD_THUMB_SIZE = 150
+
 
 # Garment types offered in the onboarding dropdown = the main clothing categories.
 # Each maps to the natural noun used in the image-generation prompt (the model reads
@@ -176,11 +184,14 @@ class OnboardWardrobe:
             st.session_state.onboard_preview_error = None
 
         if uploads:
-            thumb_cols = st.columns(min(len(uploads), 3))
-            for index, photo in enumerate(uploads):
-                with thumb_cols[index % len(thumb_cols)]:
+            # A wrapping horizontal row of fixed-size thumbnails, not a column
+            # grid: a single upload must stay thumbnail-sized instead of
+            # stretching across the card. ``width`` is an int (not "stretch")
+            # so Streamlit does not scale the image to its container.
+            with st.container(horizontal=True, key="cm-upload-thumbs"):
+                for index, photo in enumerate(uploads):
                     caption = "Primary photo" if index == 0 else f"Photo {index + 1}"
-                    st.image(photo, caption=caption, width="stretch")
+                    st.image(photo, caption=caption, width=UPLOAD_THUMB_SIZE)
         else:
             st.caption("Your uploaded photos will appear here.")
 
