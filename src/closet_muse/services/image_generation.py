@@ -155,6 +155,17 @@ MULTI_PHOTO_GUIDANCE = (
     "fabric, pattern, and construction details."
 )
 
+# Added when the user names the exact piece they are onboarding. The category noun
+# alone cannot distinguish two garments of the same category, so this block pins
+# the prompt to the one garment the user means.
+TARGET_GARMENT_GUIDANCE = """
+
+TARGET GARMENT (specified by the user):
+* The user identifies the item to transfer as: "{garment_description}".
+* This is the only garment to dress the mannequin in. If the photographs show other garments, ignore them entirely.
+* Do not re-interpret, broaden, or replace this description, and do not add any garment it does not name.
+"""
+
 # Reference mannequin image filename per (form, view) (under ``settings.mannequin_dir``).
 MANNEQUIN_FILE_BY_FORM_AND_VIEW = {
     (form, view): f"mannequin_{form}{'' if view == 'front' else '_tilted'}.png"
@@ -216,6 +227,7 @@ def build_dressed_prompt(
     mannequin_form: str = "full",
     num_photos: int = 1,
     view: str = "front",
+    garment_description: str | None = None,
 ) -> str:
     """Build the dressed-mannequin prompt for a garment type, form, and view.
 
@@ -226,6 +238,10 @@ def build_dressed_prompt(
     reference image's orientation.
     ``num_photos`` is the number of photos of the person's garment supplied as references;
     when more than one is given, the prompt explains that they show the same garment.
+    ``garment_description`` is the user's optional wording for the exact piece. It is
+    appended as a separate block instead of replacing ``garment_type``, because every
+    sentence in the template is built around that noun ("dress the mannequin in the
+    top ..."); dropping the noun would break the footwear and accessory wording.
     """
     if mannequin_form not in FRAMING_BY_FORM:
         raise ValueError(
@@ -254,6 +270,14 @@ def build_dressed_prompt(
     photo_guidance = (
         MULTI_PHOTO_GUIDANCE.format(garment_type=garment_type) if num_photos > 1 else ""
     )
+    # The description sits right after the multi-photo note so the model reads the
+    # identification rules and then the one garment it must obey. It is stripped
+    # here (not just truthiness-checked) so whitespace-only input adds no block.
+    target_description = (garment_description or "").strip()
+    if target_description:
+        photo_guidance += TARGET_GARMENT_GUIDANCE.format(
+            garment_description=target_description
+        )
     return prompt_mannequin_dressed_template.format(
         garment_type=garment_type,
         view=VIEW_BY_FORM_AND_VIEW[(mannequin_form, view)],
@@ -283,6 +307,7 @@ def _polish_one_view(
     garment_type: str,
     mannequin_form: str,
     view: str,
+    garment_description: str | None = None,
 ) -> bytes | None:
     """Dress one mannequin view in the garment and return the PNG bytes."""
     reference_path = _mannequin_reference_path(mannequin_form, view)
@@ -290,7 +315,11 @@ def _polish_one_view(
         raise FileNotFoundError(f"Mannequin reference image not found: {reference_path}")
 
     prompt = build_dressed_prompt(
-        garment_type, mannequin_form, num_photos=len(image_list), view=view
+        garment_type,
+        mannequin_form,
+        num_photos=len(image_list),
+        view=view,
+        garment_description=garment_description,
     )
 
     payload = {
@@ -343,6 +372,7 @@ def polish_clothing_image(
     garment_type: str,
     mannequin_form: str,
     mime_types: Sequence[str] | str | None = None,
+    garment_description: str | None = None,
 ) -> dict[str, bytes]:
     """Dress a studio mannequin in the garment worn by the person in the photo(s).
 
@@ -359,6 +389,9 @@ def polish_clothing_image(
     fallback: the type is always detected from each image's bytes, because a
     caller-supplied type can be wrong (the frontend labels every upload
     ``image/png``) and OpenRouter rejects a mismatch with a 400.
+
+    ``garment_description`` is the user's optional wording for the exact piece.
+    It is passed to both views so the two perspectives show the same garment.
 
     Returns ``{"front": png_bytes, "tilted": png_bytes}``. Raises
     ``RuntimeError`` if either view came back without an image, so a partially
@@ -398,6 +431,7 @@ def polish_clothing_image(
             garment_type=garment_type,
             mannequin_form=mannequin_form,
             view=view,
+            garment_description=garment_description,
         )
 
     # Both views are independent requests, so run them concurrently.

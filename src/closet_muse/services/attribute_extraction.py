@@ -35,6 +35,14 @@ _FIELD_GUIDANCE = (
     "not guess a brand, size, or material that is not visible."
 )
 
+# Appended when the user names the exact piece they are onboarding. The photos can
+# contain more than one garment, so the model needs to be told which one to analyse.
+_GARMENT_HINT_GUIDANCE = (
+    " The user identifies the item to analyse as: \"{garment_hint}\". Analyse only "
+    "that garment and ignore any other garment or accessory visible in the photos. "
+    "Do not describe the other items."
+)
+
 # Fields that describe stored files rather than the garment itself, so they are
 # never part of the extraction schema. ``ClothingBase`` no longer declares any (the
 # image fields moved into ``clothing_image`` in revision ``0006``), but the filter is
@@ -123,21 +131,31 @@ def _extraction_schema(
     }
 
 
-def _build_prompt(count: int) -> str:
-    """The instruction text for a single photo or several angles of one item."""
+def _build_prompt(count: int, garment_hint: str | None = None) -> str:
+    """The instruction text for a single photo or several angles of one item.
+
+    ``garment_hint`` is the user's optional wording for the exact piece; when given
+    it tells the model which garment in the photos to describe.
+    """
     prompt = _PROMPT_SINGLE if count == 1 else _PROMPT_MULTIPLE.format(count=count)
-    return prompt + _FIELD_GUIDANCE
+    prompt += _FIELD_GUIDANCE
+    # Strip before the truthiness check so whitespace-only input adds no guidance.
+    hint = (garment_hint or "").strip()
+    if hint:
+        prompt += _GARMENT_HINT_GUIDANCE.format(garment_hint=hint)
+    return prompt
 
 
 def _build_payload(
     images: Sequence[bytes],
     main_category: enums.WomenClothingMainCategory | None = None,
+    garment_hint: str | None = None,
 ) -> dict[str, Any]:
     """The Chat Completions request body for the given photos."""
     # The text part goes first: OpenRouter parses the content in order, and the
     # instruction reads better before the images it refers to.
     content: list[dict[str, Any]] = [
-        {"type": "text", "text": _build_prompt(len(images))}
+        {"type": "text", "text": _build_prompt(len(images), garment_hint)}
     ]
     content.extend(
         {"type": "image_url", "image_url": {"url": to_data_url(image)}}
@@ -190,6 +208,7 @@ def _post(payload: dict[str, Any]) -> dict[str, Any]:
 def extract_clothing_attributes(
     images: Sequence[bytes],
     main_category: enums.WomenClothingMainCategory | None = None,
+    garment_hint: str | None = None,
 ) -> ClothingBase:
     """Extract clothing attributes from one or more photos of the same garment.
 
@@ -199,12 +218,16 @@ def extract_clothing_attributes(
     ``main_category`` is the garment type the user already chose. When given,
     the schema pins the category and restricts ``sub_category`` to that
     category's options, so the result always fits the form.
+
+    ``garment_hint`` is the user's optional wording for the exact piece. When
+    given, the model is told to analyse that garment rather than any other one
+    visible in the photos.
     """
     if not images:
         raise ValueError("At least one image is required to extract attributes.")
     require_api_key()
 
-    body = _post(_build_payload(images, main_category))
+    body = _post(_build_payload(images, main_category, garment_hint))
 
     choices = body.get("choices") or []
     if not choices:

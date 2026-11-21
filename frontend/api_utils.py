@@ -81,9 +81,16 @@ def _delete(path: str, **kwargs) -> requests.Response:
 
 
 def polish_clothing_image(
-    images: list[FileLike], garment_type: str, mannequin_form: str
+    images: list[FileLike],
+    garment_type: str,
+    mannequin_form: str,
+    garment_description: str | None = None,
 ) -> dict[str, bytes]:
     """Dress both mannequin perspectives in the garment.
+
+    ``garment_description`` is the optional free-text wording the user supplied
+    (e.g. "white linen button-down shirt"). It narrows the garment type down to
+    the one piece to transfer and is omitted from the request when empty.
 
     The backend returns a ZIP archive holding one PNG per view, so this unpacks
     it into ``{"front": bytes, "tilted": bytes}``. Raises ``requests.HTTPError``
@@ -91,6 +98,11 @@ def polish_clothing_image(
     """
     files = [("files", (image.name, image.getvalue(), image.type)) for image in images]
     data = {"garment_type": garment_type, "mannequin_form": mannequin_form}
+    # Strip so whitespace-only input is treated as "no description" rather than
+    # sending a blank field the backend would then have to ignore.
+    description = (garment_description or "").strip()
+    if description:
+        data["garment_description"] = description
     response = _post("/images/polish/", files=files, data=data)
     response.raise_for_status()
 
@@ -112,6 +124,7 @@ def polish_clothing_image(
 def generate_clothing_attributes(
     images: list[FileLike],
     main_category: WomenClothingMainCategory | None = None,
+    garment_hint: str | None = None,
 ) -> ClothingBase:
     """Extract clothing attributes from the uploaded photos.
 
@@ -119,12 +132,21 @@ def generate_clothing_attributes(
     the backend constrains the category and sub-category to it, so the result
     always fits the form.
 
+    ``garment_hint`` is the optional free-text description of the exact piece.
+    When given, the extractor is told to analyse that garment rather than any
+    other one visible in the photos.
+
     Raises ``requests.HTTPError`` on a failed request so the caller can surface
     the failure; extraction is a user-triggered step of its own.
     """
     files = [("files", (image.name, image.getvalue(), image.type)) for image in images]
-    data = {"main_category": main_category.value} if main_category else None
-    response = _post("/images/attributes/", files=files, data=data)
+    data = {"main_category": main_category.value} if main_category else {}
+    # Strip so whitespace-only input is treated as "no hint" rather than sending a
+    # blank field the backend would then have to ignore.
+    hint = (garment_hint or "").strip()
+    if hint:
+        data["garment_hint"] = hint
+    response = _post("/images/attributes/", files=files, data=data or None)
     response.raise_for_status()
     return ClothingBase(**response.json())
 

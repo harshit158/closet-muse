@@ -19,11 +19,16 @@ async def polish_image(
     files: list[UploadFile] = File(...),
     garment_type: str = Form(...),
     mannequin_form: str = Form(...),
+    garment_description: str | None = Form(None),
 ) -> Response:
     """Dress a studio mannequin in the garment worn by the person in the photo(s).
 
     The garment is applied to both perspectives of the chosen form, so the
     response is a ZIP archive containing ``front.png`` and ``tilted.png``.
+
+    ``garment_description`` is the user's optional wording for the exact piece
+    (e.g. "white linen button-down shirt"). It narrows the garment type down to
+    the one item to transfer when several garments are visible in the photos.
     """
     if not files:
         raise HTTPException(status_code=422, detail="At least one image is required.")
@@ -39,6 +44,7 @@ async def polish_image(
             garment_type,
             mannequin_form,
             mime_types,
+            garment_description,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -58,11 +64,16 @@ async def polish_image(
 async def extract_attributes(
     files: list[UploadFile] = File(...),
     main_category: WomenClothingMainCategory | None = Form(None),
+    garment_hint: str | None = Form(None),
 ) -> ClothingBase:
     """Extract clothing attributes from one or more photos of the item.
 
     ``main_category`` is the garment type the user already selected; when given,
     the extraction is constrained to it so the result fits the form.
+
+    ``garment_hint`` is the user's optional wording for the exact piece. When
+    given, the model is told to analyse that garment instead of any other one
+    visible in the photos.
 
     The extraction is a blocking HTTP call to OpenRouter, so it runs in a
     threadpool to keep the event loop free.
@@ -76,6 +87,7 @@ async def extract_attributes(
             attribute_extraction.extract_clothing_attributes,
             image_bytes,
             main_category,
+            garment_hint,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
