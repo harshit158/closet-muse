@@ -22,18 +22,10 @@ GARMENT_TYPE_NOUNS = {
     enums.WomenClothingMainCategory.ACCESSORIES: "accessory",
 }
 
-# Mannequin forms offered in the onboarding dropdown, mapped to friendly labels.
-# Each form has a straight-on front image and a three-quarter tilted image; the
-# garment is applied to both so the try-on model sees two perspectives.
-MANNEQUIN_FORM_LABELS = {
-    "face": "Head, neck & shoulders",
-    "top": "Upper body (head to hips)",
-    "full": "Full body",
-    "bottom": "Lower body (waist to feet)",
-    "feet": "Below knees & feet",
-}
-
-# Sensible default mannequin form per garment type (still user-overridable).
+# Mannequin form used for each garment type. The form is no longer user-selectable:
+# it is derived from this map, so a top is always dressed on the upper-body form and
+# so on. Each form has a straight-on front image and a three-quarter tilted image;
+# the garment is applied to both so the try-on model sees two perspectives.
 # Categories without an obvious form fall back to "full" via .get(...).
 DEFAULT_FORM_BY_GARMENT = {
     enums.WomenClothingMainCategory.TOPS: "top",
@@ -107,20 +99,12 @@ class OnboardWardrobe:
 
     @staticmethod
     def _default_form_for(garment_type: enums.WomenClothingMainCategory) -> str:
-        """The sensible default mannequin form for a garment type."""
-        return DEFAULT_FORM_BY_GARMENT.get(garment_type, "full")
+        """The mannequin form used for a garment type.
 
-    def _on_garment_type_change(self) -> None:
-        """Snap the mannequin form to the new garment type's default.
-
-        Streamlit keeps a keyed widget's stored value over its ``index``, so the
-        form would otherwise stay on its first value when the category changes.
-        Rewriting the key here keeps the two controls in sync; the user can still
-        override the form afterwards (a manual change does not re-trigger this).
+        The form is not user-selectable: it is always resolved from this map, both
+        when generating previews and when recording provenance on save.
         """
-        st.session_state.mannequin_form = self._default_form_for(
-            st.session_state.garment_type
-        )
+        return DEFAULT_FORM_BY_GARMENT.get(garment_type, "full")
 
     def display_image_generator(self):
         uploads = st.file_uploader(
@@ -134,26 +118,14 @@ class OnboardWardrobe:
             ),
         )
 
-        # What to transfer and which mannequin to dress it on.
-        cols = st.columns([5, 5])
-        with cols[0]:
-            garment_type = st.selectbox(
-                "Garment type",
-                options=list(enums.WomenClothingMainCategory),
-                format_func=lambda category: category.value,
-                key="garment_type",
-                on_change=self._on_garment_type_change,
-            )
-        with cols[1]:
-            mannequin_form = st.selectbox(
-                "Mannequin form",
-                options=list(MANNEQUIN_FORM_LABELS),
-                index=list(MANNEQUIN_FORM_LABELS).index(
-                    self._default_form_for(garment_type)
-                ),
-                format_func=lambda x: MANNEQUIN_FORM_LABELS[x],
-                key="mannequin_form",
-            )
+        # What to transfer. The mannequin it is dressed on follows from the garment
+        # type (see ``DEFAULT_FORM_BY_GARMENT``), so there is nothing else to pick.
+        garment_type = st.selectbox(
+            "Garment type",
+            options=list(enums.WomenClothingMainCategory),
+            format_func=lambda category: category.value,
+            key="garment_type",
+        )
 
         # Clear the previews, attributes and detail fields whenever the uploaded
         # set changes. This runs before the details form is built (row 2), so
@@ -192,7 +164,7 @@ class OnboardWardrobe:
                     for photo in uploads
                 ],
                 "garment_noun": GARMENT_TYPE_NOUNS[garment_type],
-                "mannequin_form": mannequin_form,
+                "mannequin_form": self._default_form_for(garment_type),
             }
             st.session_state.onboard_preview_error = None
 
@@ -331,7 +303,13 @@ class OnboardWardrobe:
             api_utils.add_clothing_item(
                 user_id=self.user_id,
                 clothing=clothing_item.model_copy(
-                    update={"mannequin_form": st.session_state.mannequin_form}
+                    # Provenance derived from the saved category, so it always tracks
+                    # the garment type the item was added under.
+                    update={
+                        "mannequin_form": self._default_form_for(
+                            clothing_item.main_category
+                        )
+                    }
                 ),
                 image=st.session_state.clothing_image,
                 image_tilted=st.session_state.clothing_image_tilted,
