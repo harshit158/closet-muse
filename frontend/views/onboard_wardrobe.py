@@ -72,6 +72,13 @@ class OnboardWardrobe:
         if "onboard_upload_signature" not in st.session_state:
             st.session_state.onboard_upload_signature = ()
 
+        # fingerprint of the optional free-text item description. Previews are
+        # generated from that text, so changing it must invalidate them. It starts
+        # as ``None`` to match "no description", so the first render does not count
+        # as a change and does not clear anything.
+        if "onboard_detail_signature" not in st.session_state:
+            st.session_state.onboard_detail_signature = None
+
     @staticmethod
     def _upload_signature(uploads) -> tuple:
         """Fingerprint the uploaded files so a changed set can clear stale state."""
@@ -127,6 +134,23 @@ class OnboardWardrobe:
             key="garment_type",
         )
 
+        # Optional disambiguation. A category alone cannot say WHICH top is being
+        # onboarded, so this text is pasted into the polish prompt (and used as a
+        # hint for attribute extraction). The key must NOT start with
+        # ``FORM_KEY_PREFIX``: ``clothing_form.clear_fields`` matches by prefix and
+        # would wipe this field on every form reset.
+        garment_detail = st.text_input(
+            "What is this item? (optional)",
+            key="garment_detail",
+            max_chars=120,
+            placeholder="e.g. white linen button-down shirt",
+            help=(
+                "Name the exact piece so the preview dresses the mannequin in this "
+                "garment and not another one visible in the photos."
+            ),
+        )
+        garment_description = (garment_detail or "").strip() or None
+
         # Clear the previews, attributes and detail fields whenever the uploaded
         # set changes. This runs before the details form is built (row 2), so
         # dropping its widget keys here is safe.
@@ -139,6 +163,17 @@ class OnboardWardrobe:
             st.session_state.onboard_preview_request = None
             st.session_state.onboard_preview_error = None
             self._reset_form()
+
+        # A changed description makes the stored previews wrong (they were dressed
+        # from the old text), so drop them for regeneration. Only the previews are
+        # cleared: the extracted attributes and any typed form values stay, since
+        # the text is a refinement rather than a different item.
+        if garment_description != st.session_state.onboard_detail_signature:
+            st.session_state.onboard_detail_signature = garment_description
+            st.session_state.clothing_image = None
+            st.session_state.clothing_image_tilted = None
+            st.session_state.onboard_preview_request = None
+            st.session_state.onboard_preview_error = None
 
         if uploads:
             thumb_cols = st.columns(min(len(uploads), 3))
@@ -165,6 +200,8 @@ class OnboardWardrobe:
                 ],
                 "garment_noun": GARMENT_TYPE_NOUNS[garment_type],
                 "mannequin_form": self._default_form_for(garment_type),
+                # Optional user wording that narrows this category to one garment.
+                "garment_description": garment_description,
             }
             st.session_state.onboard_preview_error = None
 
@@ -187,6 +224,9 @@ class OnboardWardrobe:
                         request["photos"],
                         request["garment_noun"],
                         request["mannequin_form"],
+                        # ``.get``: a request recorded before this field existed (a
+                        # session that survived a code reload) has no such key.
+                        garment_description=request.get("garment_description"),
                     )
         except Exception as exc:  # noqa: BLE001 - surfaced to the UI
             st.session_state.onboard_preview_error = (
@@ -251,11 +291,15 @@ class OnboardWardrobe:
             "garment_type", list(enums.WomenClothingMainCategory)[0]
         )
 
+        # The optional description names the exact piece, so it doubles as a hint
+        # that tells the extractor which garment in the photos to analyse.
+        garment_hint = (st.session_state.get("garment_detail") or "").strip() or None
+
         if st.button("Extract details", width="stretch", disabled=not uploads):
             with st.spinner("Reading the garment details ..."):
                 try:
                     attrs = api_utils.generate_clothing_attributes(
-                        list(uploads), main_category
+                        list(uploads), main_category, garment_hint=garment_hint
                     )
                 except Exception as exc:  # noqa: BLE001 - surfaced to the UI
                     st.error(f"Failed to extract details: {exc}")
